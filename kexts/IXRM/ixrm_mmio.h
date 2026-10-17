@@ -14,12 +14,21 @@
 //   gt/intel_ggtt.c:1136-1141     "GEN8: GTTMMADR size is 16MB and GTTADR
 //                                  starts at 8MB offset" -> SZ_16M for gen>=8
 //   gt/intel_ggtt.c:1144-1146     gen6_gttadr_offset = gen6_gttmmadr_size/2
-//   gt/intel_ggtt.c:1164          phys_addr = BAR0_start + gen6_gttadr_offset
-//                                  (the non-direct-stolen path; TGL takes it)
+//   gt/intel_ggtt.c:1160-1164     phys_addr = BAR0_start + gen6_gttadr_offset
+//                                  unless i915_direct_stolen_access() — that
+//                                  function is MTL-only (Wa_22018444074):
+//                                  i915_utils.c:89-103 => false on TGL.
 //   gt/intel_ggtt.c:443,556       entries indexed by offset / I915_GTT_PAGE_SIZE
 //   gt/intel_ggtt.c:277-287       gen8_ggtt_pte_encode — the GGTT encoder for
 //                                  gen12 < 12.70 (TGL chooses it at :1286-1289):
 //                                  pte = addr | GEN8_PAGE_PRESENT
+//   include/drm/intel/i915_drm.h:49-55
+//                                 GMCH defines: SNB_GMCH_CTRL = 0x50 (PCI
+//                                 config word); BDW_GMCH_GGMS_SHIFT = 6,
+//                                 MASK = 0x3 (SNB-era shift 8 — not TGL)
+//   gt/intel_ggtt.c:1107-1121     gen8_get_total_gtt_size(): table bytes =
+//                                 ((ctl>>6)&3) ? 1<<((ctl>>6)&3) : 0, << 20
+//                                 => 0 / 2 / 4 / 8 MB; entries = bytes / 8
 
 #pragma once
 
@@ -39,5 +48,16 @@ static constexpr UInt64 kGttPageSize     = 4096ULL;         // I915_GTT_PAGE_SIZ
 // Entry bits interpreted while *reading*. The write path lands in D2.
 static constexpr UInt64 kGttPtePresent   = 1ULL << 0;       // GEN8_PAGE_PRESENT
 static constexpr UInt64 kGttPteAddrMask  = ((1ULL << 46) - 1) & ~0xFFFULL; // GENMASK_ULL(45,12)
+
+// D2 groundwork: the *real* table size is firmware-programmed, not a BAR
+// constant. It lives in PCI config space, word SNB_GMCH_CTRL, decoded the
+// gen8 way (what gen8_gmch_probe() uses on TGL):
+//     v = (ctl >> kGmchGgmsShift) & kGmchGgmsMask;
+//     sizeBytes = (v ? 1 << v : 0) << 20;          // 0, 2, 4 or 8 MB
+// Sanity tie-in: the D1 walk logged the window capacity it measured; D2 may
+// only trust a decoded size that fits within it.
+static constexpr UInt32 kGmchCtrlConfigOffset = 0x50;   // SNB_GMCH_CTRL
+static constexpr UInt32 kGmchGgmsShift        = 6;      // BDW_GMCH_GGMS_SHIFT
+static constexpr UInt32 kGmchGgmsMask         = 0x3;    // BDW_GMCH_GGMS_MASK
 
 } // namespace ixrm

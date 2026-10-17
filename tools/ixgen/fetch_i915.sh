@@ -28,6 +28,13 @@
 #   include/linux/sizes.h, and i915_direct_stolen_access() to confirm TGL takes
 #   the BAR window path (not the GSMBASE one).
 #
+# v5 (2026-10-17): v4 lost five files to raw.githubusercontent 429s, so v5 adds
+#   a fallback fetch route (the authenticated contents API, raw media type).
+#   The GMCH/GGMS defines turned out to live in include/drm/intel/i915_drm.h at
+#   v6.12 (not i915_reg.h), and i915_direct_stolen_access() in i915_utils.{c,h}
+#   — both are now fetch targets, and the direct-stolen section prints every
+#   call site.
+#
 # Usage:  bash tools/ixgen/fetch_i915.sh [TAG] [OUTDIR]
 #         (defaults: v6.12, i915-ref/)
 set -euo pipefail
@@ -59,8 +66,11 @@ drivers/gpu/drm/i915/gt/intel_gtt.h
 drivers/gpu/drm/i915/gt/intel_gtt.c
 drivers/gpu/drm/i915/gt/intel_ggtt_gmch.c
 drivers/gpu/drm/i915/i915_drv.h
+drivers/gpu/drm/i915/i915_utils.c
+drivers/gpu/drm/i915/i915_utils.h
 arch/x86/include/asm/pgtable_types.h
 include/linux/sizes.h
+include/drm/intel/i915_drm.h
 "
 
 say "== ixgen: i915 hardware-facts pipeline"
@@ -75,16 +85,31 @@ fi
 
 say ""
 say "== fetching"
+# Two routes: raw.githubusercontent (fast, unauthenticated — but it can 429 on
+# busy CI egress IPs) and, as a fallback, the authenticated contents API with
+# the raw media type. v4 lost five files on route 1 alone; route 2 keeps the
+# fact sheet whole.
+fetch_one() { # fetch_one <repo-path> <dest>
+  local path="$1" dest="$2"
+  if curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors "$BASE/$path" -o "$dest" 2>/dev/null; then
+    return 0
+  fi
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    curl -fsSL "${AUTH[@]}" -H "Accept: application/vnd.github.raw" \
+      "https://api.github.com/repos/torvalds/linux/contents/$path?ref=$TAG" -o "$dest" 2>/dev/null
+  fi
+}
 fetched=0
 for f in $FILES; do
   dest="$OUT/$(basename "$f")"
-  if curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors "${AUTH[@]}" "$BASE/$f" -o "$dest" 2>/dev/null; then
+  if fetch_one "$f" "$dest"; then
     say "OK   $f  ($(wc -c < "$dest") bytes)"
     fetched=$((fetched + 1))
   else
     say "MISS $f"
     rm -f "$dest"
   fi
+  sleep 1   # be gentle with raw.githubusercontent rate limits
 done
 if [ "$fetched" -eq 0 ]; then
   say "ERROR: nothing fetched — wrong tag, or network is down" >&2
@@ -160,6 +185,7 @@ fnbody_any "gen6_gttmmadr_size" 40
 say ""
 say "--- i915_direct_stolen_access(): which phys_addr path applies on TGL"
 fnbody_any "i915_direct_stolen_access\\(struct" 30
+search 20 "direct_stolen" "${SRC[@]}"
 
 say ""
 say "--- gen8_get_total_gtt_size(): decoding SNB_GMCH_CTRL"

@@ -104,6 +104,13 @@ needs both sides of the same machine:
 Until the comparison runs, raw values are all the walker claims; a zero-present
 scan is treated as "the window fact must be re-checked", never as success.
 
+The window-location fact itself no longer rests on inference: the BAR-vs-GSMBASE
+branch is pinned too (`i915_direct_stolen_access()` is MTL-only —
+`i915_utils.c:89-103`, Wa_22018444074), so Tiger Lake reads the window at
+`BAR0 + gen6_gttadr_offset()`, the exact bytes the walker walks. The D2 table
+size decode is also pinned now (`include/drm/intel/i915_drm.h:49-55` +
+`gt/intel_ggtt.c:1107-1121`; constants in `ixrm_mmio.h`).
+
 ## Current sprint
 
 - [x] `tools/ixgen/fetch_i915.sh` + `ixgen-linux` CI job (pinned v6.12; v4 adds the GMCH/GGMS size decode for D2)
