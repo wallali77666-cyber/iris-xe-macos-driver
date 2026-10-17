@@ -17,6 +17,7 @@ PASS / DIFF per row. `tools/ixcheck/ixcheck.sh` produces the i915 side.
 
 1. Boot the Latitude 5420 from a **Linux live USB** (no install — nothing is
    written to the disk; the internal panel is already lit by i915/fbcon at boot).
+   Any distro works — Fedora, Ubuntu, or a Kali/Debian live image.
 2. Put `tools/ixcheck/ixcheck.sh` on any FAT32 stick, open a terminal, run:
 
    ```
@@ -35,10 +36,9 @@ PASS / DIFF per row. `tools/ixcheck/ixcheck.sh` produces the i915 side.
    macOS produce that file with
    `log show --last boot --predicate 'eventMessage CONTAINS "IXFB:"' > ixfb.log`.)
 
-**Download sizes, checked before anything is pulled:** the Linux live image is
-Fedora Workstation ≈ 2.5 GB or Ubuntu Desktop ≈ 6 GB. The exact size for your
-chosen distro will be confirmed right before you download — nothing happens
-until you say go.
+**Download sizes, checked before anything is pulled:** if you don't already have
+a live image — Fedora Workstation ≈ 2.5 GB, Ubuntu Desktop ≈ 6 GB, Kali ≈ 4 GB.
+Your choice; nothing happens until you say go.
 
 ## What the capture contains (all read-only)
 
