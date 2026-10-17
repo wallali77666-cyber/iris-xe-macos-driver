@@ -15,6 +15,14 @@
 #   (ggtt_probe_common, gen8_gmch_probe, ggtt_probe_hw, both pte encoders) and
 #   anchored #define lines, so formulas AND values come out in one run.
 #
+# v3 (2026-10-17): v2 located the GGTT mapping and the entry bit values; v3
+#   prints the functions behind the remaining unknowns (gen6_gttadr_offset,
+#   gen6_gttmmadr_size, gen8_get_total_gtt_size, gen8_ggtt_pte_encode,
+#   gen8_ggtt_insert_entries, gen8_set_pte) with signature patterns (v2's
+#   ggtt_probe_common pattern first hit a comment mention), fetches the x86 PTE
+#   header for the _PAGE_* bits PPAT_* is built from, and survives raw.github
+#   flaking (--retry-all-errors; i915_reg.h missed v2 for unrelated reasons).
+#
 # Usage:  bash tools/ixgen/fetch_i915.sh [TAG] [OUTDIR]
 #         (defaults: v6.12, i915-ref/)
 set -euo pipefail
@@ -45,6 +53,7 @@ drivers/gpu/drm/i915/gt/gen8_ppgtt.h
 drivers/gpu/drm/i915/gt/intel_gtt.h
 drivers/gpu/drm/i915/gt/intel_gtt.c
 drivers/gpu/drm/i915/gt/intel_ggtt_gmch.c
+arch/x86/include/asm/pgtable_types.h
 "
 
 say "== ixgen: i915 hardware-facts pipeline"
@@ -62,7 +71,7 @@ say "== fetching"
 fetched=0
 for f in $FILES; do
   dest="$OUT/$(basename "$f")"
-  if curl -fsSL --retry 3 --retry-delay 2 "${AUTH[@]}" "$BASE/$f" -o "$dest" 2>/dev/null; then
+  if curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors "${AUTH[@]}" "$BASE/$f" -o "$dest" 2>/dev/null; then
     say "OK   $f  ($(wc -c < "$dest") bytes)"
     fetched=$((fetched + 1))
   else
@@ -105,6 +114,17 @@ fnbody() { # fnbody <file> <start-regex> <limit> — whole function body, no cut
   ' "$file" | tee -a "$EX" || true
 }
 
+fnbody_any() { # fnbody_any <start-regex> <limit> — first fetched file containing it
+  local pat="$1" limit="$2" f
+  for f in "${SRC[@]}"; do
+    [ -e "$f" ] || continue
+    if grep -qE "$pat" "$f" 2>/dev/null; then
+      fnbody "$f" "$pat" "$limit"
+      return 0
+    fi
+  done
+}
+
 say ""
 say "=============================================================="
 say " SECTION 1 — GGTT: where the page tables live (and how they map)"
@@ -115,15 +135,28 @@ fi
 
 say ""
 say "--- ggtt_probe_common(): the mapping and where phys_addr comes from"
-fnbody "$OUT/intel_ggtt.c" "ggtt_probe_common" 100
+fnbody "$OUT/intel_ggtt.c" "static int ggtt_probe_common" 110
 
 say ""
 say "--- gen8_gmch_probe(): GTT size derivation"
-fnbody "$OUT/intel_ggtt.c" "gen8_gmch_probe" 100
+fnbody "$OUT/intel_ggtt.c" "static int gen8_gmch_probe" 100
 
 say ""
 say "--- ggtt_probe_hw()"
-fnbody "$OUT/intel_ggtt.c" "ggtt_probe_hw" 60
+fnbody "$OUT/intel_ggtt.c" "static int ggtt_probe_hw" 60
+
+say ""
+say "--- gen6_gttadr_offset() / gen6_gttmmadr_size(): where in the BAR the GGTT lives"
+fnbody_any "gen6_gttadr_offset" 40
+fnbody_any "gen6_gttmmadr_size" 40
+
+say ""
+say "--- gen8_get_total_gtt_size(): decoding SNB_GMCH_CTRL"
+fnbody_any "gen8_get_total_gtt_size" 60
+
+say ""
+say "--- searches: BAR offsets, GSM base, GTT size, entry address mask"
+search 60 "gttadr|gttmmadr|GSMBASE|BDSM|GMCH_CTRL|SNB_GMCH|GEN12_GGTT_PTE_ADDR_MASK" "${SRC[@]}"
 
 say ""
 say "--- resource/phys_addr/mappable mentions (intel_ggtt.c)"
@@ -145,9 +178,27 @@ say "--- which encoder the GGTT itself uses"
 search 30 "pte_encode" "$OUT/intel_ggtt.c" "$OUT/gen8_ppgtt.c" "$OUT/intel_gtt.h"
 
 say ""
+say "--- gen8_ggtt_pte_encode() — the GGTT encoder on gen12 < 12.70 (Tiger Lake)"
+fnbody "$OUT/intel_ggtt.c" "u64 gen8_ggtt_pte_encode" 50
+
+say ""
+say "--- mtl_ggtt_pte_encode() (12.70+, for contrast)"
+fnbody "$OUT/intel_ggtt.c" "static u64 mtl_ggtt_pte_encode" 40
+
+say ""
+say "--- gen8_ggtt_insert_entries() — the bulk write path"
+fnbody "$OUT/intel_ggtt.c" "gen8_ggtt_insert_entries" 70
+
+say ""
+say "--- small helpers: gen8_set_pte, ggtt_total_entries, needs_wc_ggtt_mapping"
+fnbody_any "gen8_set_pte" 25
+fnbody_any "ggtt_total_entries" 20
+fnbody_any "needs_wc_ggtt_mapping" 25
+
+say ""
 say "--- anchored #define lines: the numeric values (all fetched files)"
 if [ "${#SRC[@]}" -gt 0 ]; then
-  search 160 "^#define[[:space:]]+(GEN8_PAGE|PPAT_|GEN12_PPGTT_PTE|GEN8_PDE|PTE_|I915_GTT_PAGE|_PAGE_|PHYSICAL)" "${SRC[@]}"
+  search 200 "^#define[[:space:]]+(GEN8_PAGE|PPAT_|GEN12_PPGTT|GEN12_GGTT|GEN8_PDE|PTE_|I915_GTT_PAGE|_PAGE_|PHYSICAL|BDSM|SNB_GMCH)" "${SRC[@]}"
 fi
 
 say ""
@@ -175,7 +226,8 @@ search 50 "gsm \\+|first_entry|I915_GTT_PAGE_SIZE" "$OUT/intel_ggtt.c"
 say ""
 say "== key-fact hit counts (0 = file moved; see MISS list above)"
 for pat in "gtt_offset|gtt_base|GTT_BASE" "0x800000" "gen8_pte_encode" "gen12_pte_encode" \
-           "GEN8_PAGE_PRESENT" "PPAT_|GEN12_PPGTT_PTE" "pci_resource_len"; do
+           "GEN8_PAGE_PRESENT" "PPAT_|GEN12_PPGTT_PTE" "pci_resource_len" \
+           "gen8_ggtt_pte_encode" "gttadr"; do
   n="$(grep -chE "$pat" "${SRC[@]}" 2>/dev/null | awk '{s+=$1} END {print s+0}' || true)"
   say "  $pat: $n"
 done
