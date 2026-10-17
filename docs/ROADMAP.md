@@ -36,6 +36,10 @@ validated against recorded i915 MMIO traces.
 | `NVRMAGDC.kext` — graphics device control policy | `IXAGDC.kext` | policy queries |
 | `gatekeeper`-style install (`package/install.sh`, kmutil KC, OpenCore wiring) | same shape: boot-args `iris=1 irisfb=1 irisaccel=1`, `csr-active-config`, `/Library/Extensions`, auxiliary KC | unchanged method |
 
+**Status (2026-10-17):** B1 scaffold, B2 `ixplan` (PLANE_STRIDE corrected to 64-byte
+units per i915), B3 IXFB Phase-1 takeover and B4 IXRM probe are implemented and build
+green in GitHub Actions; each step's hardware verification lands with Phase C.
+
 ## Phase C — Bring-up on the target laptop
 
 1. Boot macOS Sequoia via OpenCore on the Latitude 5420 (no iGPU driver: display comes from

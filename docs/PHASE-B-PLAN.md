@@ -9,7 +9,7 @@ All four kexts (`IXFB`, `IXRM`, `IXAccel`, `IXAGDC`), the plugin stub, build scr
 the sniffer build/run in GitHub Actions on every push. Success = green badge + downloadable
 `iris-xe-build` artifact containing the `.kext` bundles.
 
-## B2 — Tools that run anywhere (Windows, no Mac needed) ← next
+## B2 — Tools that run anywhere (Windows, no Mac needed) ✅ ixplan done — ixcheck waits on Linux traces
 
 The display values `IXFB` will need, computed and testable **here**, before any Mac exists:
 
@@ -18,12 +18,15 @@ The display values `IXFB` will need, computed and testable **here**, before any 
   - `PIPESRC`, plane stride (64-byte aligned), linear XRGB format
   - built from Linux `i915` display register formulas (MIT); every formula documented
   - validated against the reference machine's real panel (AUO B140HAK, 1920×1080 @ 60.05)
+  - PLANE_STRIDE corrected to the hardware's 64-byte units (`stride / 64`, per i915
+    `skl_plane_stride`) after i915 source review — CI prints `0x40` for the runner's
+    1024-wide virtual panel, and `0x78` is expected for the B140HAK's 1920-wide one
 - `tools/ixcheck/` (later, needs Linux) — compares the plan against MMIO traces recorded
   from the same laptop running Linux (live USB), the way NullMoth's `igfx_check.py`
   validates their planner against recorded i915 writes. **No register formula is trusted
   until a real machine agrees with it.**
 
-## B3 — IXFB: real Phase-1 display takeover
+## B3 — IXFB: real Phase-1 display takeover ✅ implemented — hardware validation is Phase C
 
 - map BAR0 (MMIO) + BAR2 (graphics aperture)
 - scan pipes 0-3 for the pipe whose primary plane is enabled and linear-XRGB (the mode
@@ -34,11 +37,12 @@ The display values `IXFB` will need, computed and testable **here**, before any 
 - success = panel keeps its exact current picture but is now owned by our driver
   (verifiable in `ioreg`), with correct size/refresh reported
 
-## B4 — IXRM: first real hardware probe
+## B4 — IXRM: first real hardware probe ✅ implemented (still declines)
 
-- map BAR0/BAR2, read the GPU's identification registers (GMD_ID on Gen12), check for
-  GuC/HuC firmware presence on disk; log-only, still declining
-- success = `IXRM: GMD_ID ... / firmware ...` lines in `dmesg` on the target
+- map BAR0/BAR2, log the PCI identity and one raw MMIO word (no register name is
+  attached to a raw address until `ixcheck` validates it against traces); firmware
+  loading path planned and logged; log-only, still declining
+- success = `IXRM:` identity/BAR lines in the log on the target
 
 ## B5 — Plugin + translator
 
