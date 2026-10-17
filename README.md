@@ -1,0 +1,42 @@
+# iris-xe-macos-driver
+
+Native macOS support project for **Intel Iris Xe (Tiger Lake, Gen12)** integrated graphics,
+modeled after [NullMoth's NVIDIA driver](https://github.com/nullmoth/nvidia-macos-driver)
+architecture (study clone kept at `../nvidia-macos-driver`).
+
+Target machine: **Dell Latitude 5420 — Intel Core i5-1145G7, Iris Xe Graphics (PCI `8086:9A49`)**.
+
+This is an independent, non-commercial research project. It is **not affiliated with NullMoth
+Systems**, and reuses no NullMoth trademarks. Their public source is studied as a reference for
+architecture only (PolyForm Noncommercial 1.0.0 — personal/research/educational use allowed;
+their `translator/` is LGPL-3.0 as it derives from metal2vulkan).
+
+## Status
+
+| Phase | What | State |
+|---|---|---|
+| A | **IrisProbe** — hardware sniffer + laptop OpenCore plist generator | ✅ built, run on target |
+| B | Driver scaffold mirroring NullMoth: kexts / Metal plugin / translator / ANV back end | ⬜ planned (see `docs/ROADMAP.md`) |
+| C | Bring-up tooling on macOS (EDID→register planner, MMIO tracing, display Phase-1 takeover) | ⬜ planned |
+| D | Metal acceleration (AIR→SPIR-V → Mesa ANV → new Intel kernel driver) | ⬜ research |
+
+## Layout
+
+```
+tools/irisprobe/     hardware sniffer (Python, stdlib only, runs on Windows)
+reports/             sniffer output (git-ignored): report + plist + notes
+docs/ROADMAP.md      the full plan, mirroring NullMoth's stack onto Intel Gen12
+```
+
+## Run the sniffer
+
+```powershell
+python tools\irisprobe\irisprobe.py
+```
+
+Writes, for the machine it runs on:
+
+- `reports/irisprobe-report.json` — everything sniffed, machine-readable
+- `reports/irisprobe-report.txt` — human-readable summary
+- `reports/iris-config.plist` — OpenCore fragment (`DeviceProperties` + `NVRAM/boot-args`)
+- `reports/iris-config-notes.md` — how to merge it, BIOS settings, macOS status per component
