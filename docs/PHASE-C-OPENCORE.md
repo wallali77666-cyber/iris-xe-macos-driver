@@ -66,6 +66,9 @@ the macOS UI has a display even though no Apple driver supports Tiger Lake.
      ```
 
      It creates `com.apple.recovery.boot\` (BaseSystem.dmg + .contentDetails).
+   - optional: `python recovery-info.py` (in `tools\efi\`) prints the exact
+     image size (and product) from the tiny chunklist before any large
+     download - it runs next to `macrecovery.py`.
    - copy that folder next to `EFI` on the USB.
    - If Apple rejects the board id (error instead of download), stop and tell me —
      the id is fixed in CI, not on your side.
@@ -82,16 +85,20 @@ USB:\com.apple.recovery.boot\...          (from macrecovery)
 Everything the stick would carry can live on the laptop's own disk, and every
 piece of it is additive and removable:
 
-- `EFI\OC` → the **EFI system partition** (ESP) Windows already has, with a
-  dedicated *OpenCore* firmware entry (Windows Boot Manager stays untouched)
-- `com.apple.recovery.boot` → the **SHARE** FAT32 partition made for ixcheck
-  (needs ~1 GB free; only the recovery folder goes there)
+- **Chosen route (this machine):** everything on the **SHARE** partition (the
+  1 GB `G:` FAT32 volume): `EFI\OC`, `EFI\BOOT\BOOTX64.EFI` (fallback loader)
+  and `com.apple.recovery.boot`, plus its own *OpenCore* firmware boot entry
+  pointing straight at `G:\EFI\OC\OpenCore.efi`. The ESP is never touched.
+  One-click: `tools\efi\install-opencore-share.cmd` (self-elevating: formats
+  the volume on first run, installs OpenCore, copies a staged Recovery when
+  present, registers the entry; prints its own undo) and
+  `tools\efi\add-recovery.cmd` (no admin; copies the Recovery folder later).
+- **Fallback route:** `EFI\OC` on the **ESP** with a firmware entry (Windows
+  Boot Manager untouched) and `com.apple.recovery.boot` on SHARE - one-click
+  `tools\efi\install-opencore-esp.cmd`; 2b.1-2b.2 below are its manual
+  reference.
 
-**Shortcut:** `tools\efi\install-opencore-esp.cmd` (double-click, accept UAC)
-performs 2b.1 and 2b.2 in one step — it mounts the ESP, refreshes `EFI\OC`,
-registers the firmware entry, prints ESP free space and the undo commands, and
-never touches `EFI\Microsoft` / `EFI\BOOT`. The manual steps below remain the
-reference (and the fallback if the script's output shows anything unexpected).
+2b.1-2b.2 describe the fallback (ESP) route; 2b.3-2b.4 apply to both.
 
 ### 2b.1 Copy OpenCore to the ESP
 
