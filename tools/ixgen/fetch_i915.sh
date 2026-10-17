@@ -35,6 +35,15 @@
 #   — both are now fetch targets, and the direct-stolen section prints every
 #   call site.
 #
+# v6 (2026-10-17): two extraction lessons from the v5 log. (1) The runner's awk
+#   rejects an escaped paren in fnbody patterns: "awk: warning: escape sequence
+#   `\(' treated as plain `('" followed by "fatal: invalid regexp: Unmatched ( or
+#   \(" — an empty body that still looked like success. Patterns here stay
+#   escape-free; where a symbol repeats, file order (.c first) picks the
+#   definition. (2) The GMCH/GGMS defines sit behind SNB_/BDW_ prefixes that the
+#   anchored #define alternation cannot catch, so they get a targeted per-file
+#   search of i915_drm.h instead.
+#
 # Usage:  bash tools/ixgen/fetch_i915.sh [TAG] [OUTDIR]
 #         (defaults: v6.12, i915-ref/)
 set -euo pipefail
@@ -184,12 +193,18 @@ fnbody_any "gen6_gttmmadr_size" 40
 
 say ""
 say "--- i915_direct_stolen_access(): which phys_addr path applies on TGL"
-fnbody_any "i915_direct_stolen_access\\(struct" 30
+fnbody_any "i915_direct_stolen_access" 30
 search 20 "direct_stolen" "${SRC[@]}"
 
 say ""
 say "--- gen8_get_total_gtt_size(): decoding SNB_GMCH_CTRL"
 fnbody_any "gen8_get_total_gtt_size" 60
+
+say ""
+say "--- GMCH/GGMS defines (i915_drm.h): SNB_/BDW_ prefixes defeat the anchored search"
+if [ -f "$OUT/i915_drm.h" ]; then
+  search 60 "GMCH_CTRL|GMCH_GGMS|GMCH_GMS" "$OUT/i915_drm.h"
+fi
 
 say ""
 say "--- searches: BAR offsets, GSM base, GTT size, entry address mask"
