@@ -42,6 +42,9 @@ green in GitHub Actions; each step's hardware verification lands with Phase C.
 The Phase C prerequisite — the OpenCore EFI (OpenCore + kexts + our IXFB/IXRM,
 config generated from the release's own Sample.plist and ocvalidate-checked) —
 is now assembled by the `efi` workflow: see `docs/PHASE-C-OPENCORE.md`.
+The B2 remainder is tooled too: `tools/ixcheck/` captures the real i915 display
+state on the laptop and `compare.py` diffs plan ↔ i915 ↔ IXFB, with a CI
+self-test (`docs/IXCHECK.md`) — waiting on the live-USB capture session.
 
 ## Phase C — Bring-up on the target laptop
 

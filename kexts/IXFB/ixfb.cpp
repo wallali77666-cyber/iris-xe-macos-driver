@@ -260,8 +260,9 @@ bool com_irisxe_IXFB::adoptLitPipe(void) {
         }
 
         fPipe = (int)p;
-        IXFBLOG("pipe %u: %ux%u stride %u surface 0x%X totals %ux%u, %u vblanks in %llu ms -> %u.%02u Hz, pclk %llu MHz",
-                p, fWidth, fHeight, fRowBytes, fSurf, fHT, fVT, frames,
+        IXFBLOG("pipe %u: %ux%u stride %u fmt %u tiling %u surface 0x%X hs %u-%u vs %u-%u totals %ux%u, %u vblanks in %llu ms -> %u.%02u Hz, pclk %llu MHz",
+                p, fWidth, fHeight, fRowBytes, fmt, tiling, fSurf,
+                fHSS, fHSE, fVSS, fVSE, fHT, fVT, frames,
                 (unsigned long long)(ns / 1000000),
                 fRefresh16 >> 16, ((fRefresh16 & 0xFFFF) * 100) >> 16,
                 (unsigned long long)(fPclk / 1000000));

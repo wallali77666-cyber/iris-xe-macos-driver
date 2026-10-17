@@ -27,6 +27,7 @@ their `translator/` is LGPL-3.0 as it derives from metal2vulkan).
 ```
 tools/irisprobe/     hardware sniffer (Python, stdlib only, runs on Windows)
 tools/ixplan/        EDID -> display register plan (validated against i915)
+tools/ixcheck/       i915 ground-truth capture + plan/real-world comparator (CI-tested)
 tools/efi/           assembles the ready OpenCore EFI from the latest releases (CI)
 efi/                 OpenCore EFI sources (SSDT .dsl; the zip lives in CI artifacts)
 reports/             sniffer output (git-ignored): report + plist + notes
