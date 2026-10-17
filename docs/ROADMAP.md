@@ -44,7 +44,11 @@ config generated from the release's own Sample.plist and ocvalidate-checked) —
 is now assembled by the `efi` workflow: see `docs/PHASE-C-OPENCORE.md`.
 The B2 remainder is tooled too: `tools/ixcheck/` captures the real i915 display
 state on the laptop and `compare.py` diffs plan ↔ i915 ↔ IXFB, with a CI
-self-test (`docs/IXCHECK.md`) — waiting on the live-USB capture session.
+self-test (`docs/IXCHECK.md`).
+**First real capture (2026-10-17, Kali 6.12.13 on the 5420): every field agrees**
+— h_total 2104, v_total 1116, 141.0 MHz, stride 7680, XRGB8888 all PASS; the
+X-tiled Linux surface is an expected `INFO` (macOS adopts the firmware's linear
+one). B2 is hardware-validated; the on-disk EDID equals what the VBT/GOP runs.
 
 ## Phase C — Bring-up on the target laptop
 

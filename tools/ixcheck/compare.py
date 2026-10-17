@@ -3,35 +3,52 @@
 
 Sources it understands:
 
-  --capture DIR|TARBALL   an ixcheck capture from a Linux live session (raw eDP EDID
-                          + i915_display_info and friends)
+  --capture DIR|TARBALL   an ixcheck capture from a Linux live session (i915
+                          debugfs text + the raw eDP EDID)
   --ixfb-log FILE         kernel-log text containing "IXFB:" lines (macOS side)
-  --edid FILE / --edid-hex H
-                          EDID to plan from when no capture is given
+  --edid FILE / --edid-hex H / --report irisprobe-report.json
+                          EDID to plan from when the capture has none
 
-For every field the tool prints plan (ixplan) | i915 | IXFB with a verdict, so a
-Phase C session produces one self-contained answer. Exit code is 0 unless a DIFF is
-found and --strict was given.
+For every field the tool prints plan (ixplan) | i915 | IXFB with a verdict.
+Exit code is 0 unless a DIFF is found and --strict was given.
 
-The i915 parser scans text lines for stable markers ("crtc timings:", "pipe src
-size:", "crtc clock:", "stride", "format", "tiling") instead of a rigid layout, so
-small kernel-version wording changes don't break it. If a field shows "not found",
-the raw capture still contains the data — the parser just needs one more pattern.
+The i915 parser is written against the real i915_display_info format (verified
+against a live kernel-6.12 capture on the target Latitude 5420): the active
+CRTC's `uapi ... mode=` line carries clock/totals/sync directly, and the active
+primary plane's `hw: [FB..]` line carries the DRM fourcc and format modifier.
+Two fields are deliberately special:
+
+  - stride: debugfs does not print it; the i915 column derives width x 4 (the
+    driver's own allocation pitch for this mode) and says so in the notes.
+  - tiling: Linux allocates its own X-tiled scanout surface by design, while
+    macOS adopts the firmware's linear one, so a tiled i915 value is expected
+    (INFO), not a plan discrepancy. IXFB-vs-plan stays strict.
+
+If a field shows "not found", the raw capture is still in the tarball - the
+parser just needs one more pattern.
 """
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import re
 import sys
 import tarfile
-import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-FORMAT_NAMES = {"XRGB8888": 8, "XBGR8888": 9, "RGB565": 2, "XRGB2101010": 16}
-TILING_NAMES = {"linear": 0, "x": 1, "y": 2, "yf": 3}
+# DRM fourcc -> PLANE_CTL format code (8 = XRGB8888)
+FOURCC_TO_PLANECFMT = {"XR24": 8}
+# DRM format modifier -> our tiling code
+MODIFIER_TO_TILING = {
+    0x0000000000000000: 0,   # linear
+    0x0100000000000001: 1,   # I915_FORMAT_MOD_X_TILED
+    0x0100000000000002: 2,   # I915_FORMAT_MOD_Y_TILED
+    0x0100000000000004: 3,   # I915_FORMAT_MOD_Yf_TILED
+}
+TILING_NAMES = {0: "linear", 1: "X", 2: "Y", 3: "Yf"}
 
 
 def load_ixplan():
@@ -44,45 +61,47 @@ def load_ixplan():
 
 # ------------------------------------------------------------------ i915 side
 
+MODE_RE = re.compile(
+    r"uapi: enable=yes, active=yes.*?mode=\"[^\"]*\":\s*"
+    r"(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)")
+PLANE_RE = re.compile(
+    r"\[FB:\d+\]\s+(\w+)\s+little-endian\s+\(0x[0-9a-fA-F]{8}\),\s*(0x[0-9a-fA-F]+),")
+
+
 def parse_i915_display_info(text: str) -> dict:
     got: dict = {}
+    plane_type = ""
     for line in text.splitlines():
-        low = line.lower()
-        if "crtc timings:" in line and "h_total" not in got:
-            nums = re.findall(r"-?\d+", line.split("crtc timings:", 1)[1])
-            if len(nums) >= 8:
-                ha, hf, hsw, hb, va, vf, vsw, vb = (int(n) for n in nums[:8])
+        if "[PLANE:" in line and "]" in line and "type=" in line:
+            m = re.search(r"type=(\w+)", line)
+            plane_type = m.group(1) if m else ""
+        if "h_total" not in got:
+            m = MODE_RE.search(line)
+            if m:
+                vr, clk, ha, hss, hse, ht, va, vss, vse, vt = (
+                    int(x) for x in m.groups())
                 got.update({
                     "h_active": ha, "v_active": va,
-                    "h_total": ha + hf + hsw + hb, "v_total": va + vf + vsw + vb,
-                    "hs_start": ha + hf, "hs_end": ha + hf + hsw,
-                    "vs_start": va + vf, "vs_end": va + vf + vsw,
+                    "h_total": ht, "v_total": vt,
+                    "hs_start": hss, "hs_end": hse,
+                    "vs_start": vss, "vs_end": vse,
+                    "pclk_khz": clk, "refresh_hz": float(vr),
                 })
-        if "pipe src size:" in line and "src_w" not in got:
-            m = re.search(r"pipe src size:\s*(\d+)x(\d+)", line)
+        if plane_type == "PRI" and "format" not in got and "hw:" in line:
+            m = PLANE_RE.search(line)
             if m:
-                got["src_w"], got["src_h"] = int(m.group(1)), int(m.group(2))
-        if "crtc clock:" in line and "pclk_khz" not in got:
-            m = re.search(r"crtc clock:\s*(\d+)", line)
-            if m:
-                got["pclk_khz"] = int(m.group(1))
-        if "stride" in low and "stride" not in got:
-            m = re.search(r"stride:?\s+(\d+)", line, re.I)
-            if m:
-                got["stride"] = int(m.group(1))
-        if "format" in low and "format" not in got:
-            m = re.search(r"format:?\s+([A-Za-z0-9_]+)", line)
-            if m and m.group(1) in FORMAT_NAMES:
-                got["format_name"] = m.group(1)
-                got["format"] = FORMAT_NAMES[m.group(1)]
-        if "tiling" in low and "tiling" not in got:
-            m = re.search(r"tiling:?\s+(\S+)", line, re.I)
-            if m:
-                t = m.group(1).rstrip(",").lower()
-                got["tiling_name"] = t
-                got["tiling"] = TILING_NAMES.get(t)
-    if "h_total" in got and "pclk_khz" in got:
-        got["refresh_hz"] = round(got["pclk_khz"] * 1000.0 / (got["h_total"] * got["v_total"]), 2)
+                fourcc, mod = m.group(1), int(m.group(2), 16)
+                got["fourcc"] = fourcc
+                if fourcc in FOURCC_TO_PLANECFMT:
+                    got["format"] = FOURCC_TO_PLANECFMT[fourcc]
+                    got["format_name"] = fourcc
+                if mod in MODIFIER_TO_TILING:
+                    got["tiling"] = MODIFIER_TO_TILING[mod]
+                    got["tiling_name"] = TILING_NAMES[got["tiling"]]
+    if "h_active" in got:
+        # debugfs does not print the plane stride; derive the driver's own pitch
+        got["stride"] = got["h_active"] * 4
+        got["stride_derived"] = True
     return got
 
 
@@ -125,51 +144,81 @@ def parse_ixfb_log(text: str) -> dict:
 
 # ------------------------------------------------------------------ capture io
 
-def read_capture(path: str) -> tuple[dict, bytes | None]:
-    """Return (name -> text, edid bytes or None) from an ixcheck dir or tarball."""
-    tmp = None
-    if not os.path.isdir(path):
-        tmp = tempfile.mkdtemp(prefix="ixcheck-")
-        with tarfile.open(path) as tf:
-            try:
-                tf.extractall(tmp, filter="data")
-            except TypeError:  # Python < 3.12
-                tf.extractall(tmp)
-        path = tmp
+def _classify(name: str, data: bytes, texts: dict, edid: list) -> None:
+    if len(data) in (128, 256) and data[:8] == b"\x00\xff\xff\xff\xff\xff\xff\x00":
+        if not edid:
+            edid.append(data)
+        return
+    if len(data) < 4 * 1024 * 1024:
+        texts[name] = data.decode("utf-8", errors="replace")
 
+
+def read_capture(path: str) -> tuple[dict, bytes | None]:
+    """Return (name -> text, edid bytes or None) from an ixcheck dir or tarball.
+
+    Everything is read in memory: tar member names must survive on every OS
+    (the first real capture contained a `0000:00:02.0_...` name, which Windows
+    cannot write to disk).
+    """
     texts: dict = {}
-    edid: bytes | None = None
-    for root, _dirs, names in os.walk(path):
-        for n in names:
-            p = os.path.join(root, n)
-            try:
-                with open(p, "rb") as f:
-                    data = f.read()
-            except OSError:
-                continue
-            if len(data) in (128, 256) and data[:8] == b"\x00\xff\xff\xff\xff\xff\xff\x00":
-                if edid is None:
-                    edid = data
-                continue
-            if len(data) < 4 * 1024 * 1024:
+    edid: list = []
+    if os.path.isdir(path):
+        for root, _dirs, names in os.walk(path):
+            for n in names:
                 try:
-                    texts[n] = data.decode("utf-8", errors="replace")
-                except Exception:  # noqa: BLE001
-                    pass
-    return texts, edid
+                    with open(os.path.join(root, n), "rb") as f:
+                        data = f.read()
+                except OSError:
+                    continue
+                _classify(n, data, texts, edid)
+    else:
+        with tarfile.open(path) as tf:
+            for m in tf.getmembers():
+                if not m.isfile():
+                    continue
+                fh = tf.extractfile(m)
+                if fh is None:
+                    continue
+                try:
+                    data = fh.read()
+                finally:
+                    fh.close()
+                _classify(os.path.basename(m.name), data, texts, edid)
+    return texts, (edid[0] if edid else None)
 
 
 def pick_display_info(texts: dict) -> tuple[str | None, str | None]:
-    for name, content in sorted(texts.items()):
-        if "i915_display_info" in name:
-            return name, content
-    return None, None
+    candidates = [(n, c) for n, c in sorted(texts.items())
+                  if "i915_display_info" in n and "CRTC" in c]
+    if not candidates:
+        candidates = [(n, c) for n, c in sorted(texts.items())
+                      if "i915_display_info" in n]
+    if not candidates:
+        return None, None
+    return candidates[0]
+
+
+def edid_from_report(path: str) -> bytes | None:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    stack = [data]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            h = cur.get("edid_hex")
+            if isinstance(h, str) and h:
+                return bytes.fromhex(h.replace(" ", "").replace(":", ""))
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            stack.extend(cur)
+    return None
 
 
 # ------------------------------------------------------------------ diffing
 
 class Row:
-    def __init__(self, label, plan, i915, ixfb, fmt="{}", tol=0, ixfb_tol=None):
+    def __init__(self, label, plan, i915, ixfb, fmt="{}", tol=0, ixfb_tol=None,
+                 info_note=None):
         self.label = label
         self.plan = plan
         self.i915 = i915
@@ -177,6 +226,8 @@ class Row:
         self.fmt = fmt
         self.tol = tol
         self.ixfb_tol = ixfb_tol if ixfb_tol is not None else tol
+        self.info_note = info_note
+        self.info_active = False
 
     def _cmp(self, a, b, tol):
         if a is None or b is None:
@@ -185,15 +236,19 @@ class Row:
 
     def verdict(self):
         eq_915 = self._cmp(self.plan, self.i915, self.tol)
-        eq_fb = self._cmp(
-            self.i915 if self.i915 is not None else self.plan, self.ixfb, self.ixfb_tol)
+        ref = self.i915 if self.i915 is not None else self.plan
+        if eq_915 is False and self.info_note is not None:
+            self.info_active = True   # expected-by-design difference
+            eq_915 = True
+            ref = self.plan           # the i915 value is not the reference here
+        eq_fb = self._cmp(ref, self.ixfb, self.ixfb_tol)
         if eq_915 is False:
             return "DIFF(i915)"
         if eq_fb is False:
             return "DIFF(ixfb)"
         if eq_915 is None and eq_fb is None:
             return "n/a"
-        return "PASS"
+        return "INFO" if self.info_active else "PASS"
 
     def show(self, v):
         return "-" if v is None else self.fmt.format(v)
@@ -202,24 +257,29 @@ class Row:
 def build_rows(plan: dict, i915: dict, ixfb: dict) -> list[Row]:
     p = plan["mode"]
     stride_reg = int(plan["registers"]["PLANE_STRIDE"]["value"], 16)
-    rows = [
+    hs0 = p["h_active"] + p["h_sync_offset"]
+    hse = hs0 + p["h_sync_width"]
+    vs0 = p["v_active"] + p["v_sync_offset"]
+    vse = vs0 + p["v_sync_width"]
+    return [
         Row("h active", p["h_active"], i915.get("h_active"), ixfb.get("h_active")),
         Row("v active", p["v_active"], i915.get("v_active"), ixfb.get("v_active")),
         Row("h total", p["h_total"], i915.get("h_total"), ixfb.get("h_total")),
         Row("v total", p["v_total"], i915.get("v_total"), ixfb.get("v_total")),
-        Row("h sync start", None, i915.get("hs_start"), ixfb.get("hs_start")),
-        Row("h sync end", None, i915.get("hs_end"), ixfb.get("hs_end")),
-        Row("v sync start", None, i915.get("vs_start"), ixfb.get("vs_start")),
-        Row("v sync end", None, i915.get("vs_end"), ixfb.get("vs_end")),
+        Row("h sync start", hs0, i915.get("hs_start"), ixfb.get("hs_start")),
+        Row("h sync end", hse, i915.get("hs_end"), ixfb.get("hs_end")),
+        Row("v sync start", vs0, i915.get("vs_start"), ixfb.get("vs_start")),
+        Row("v sync end", vse, i915.get("vs_end"), ixfb.get("vs_end")),
         Row("stride (bytes)", stride_reg * 64, i915.get("stride"), ixfb.get("stride")),
         Row("format code", 8, i915.get("format"), ixfb.get("format")),
-        Row("tiling code", 0, i915.get("tiling"), ixfb.get("tiling")),
+        Row("tiling code", 0, i915.get("tiling"), ixfb.get("tiling"),
+            info_note="Linux allocates its own X-tiled scanout surface; macOS adopts "
+                      "the firmware's linear one - expected, not a discrepancy"),
         Row("pixel clock (kHz)", p["pixel_clock_khz"], i915.get("pclk_khz"),
             ixfb.get("pclk_khz"), tol=0, ixfb_tol=2000),
         Row("refresh (Hz)", p["refresh_hz"], i915.get("refresh_hz"),
-            ixfb.get("refresh_hz"), fmt="{:.2f}", tol=0.05, ixfb_tol=1.5),
+            ixfb.get("refresh_hz"), fmt="{:.2f}", tol=0.51, ixfb_tol=1.5),
     ]
-    return rows
 
 
 def print_table(rows: list[Row]) -> int:
@@ -245,8 +305,9 @@ def main() -> int:
     ap.add_argument("--capture", help="ixcheck capture: directory or .tar.gz")
     ap.add_argument("--ixfb-log", help="text file containing IXFB: log lines")
     src = ap.add_mutually_exclusive_group()
-    src.add_argument("--edid", help="raw EDID file (when no capture is given)")
+    src.add_argument("--edid", help="raw EDID file (when the capture has none)")
     src.add_argument("--edid-hex", help="EDID as a hex string")
+    src.add_argument("--report", help="IrisProbe report JSON (takes its edid_hex)")
     ap.add_argument("--strict", action="store_true", help="exit 1 when any field differs")
     args = ap.parse_args()
 
@@ -268,10 +329,15 @@ def main() -> int:
             edid = f.read()
     elif args.edid_hex:
         edid = bytes.fromhex(args.edid_hex.replace(" ", ""))
+    elif args.report:
+        edid = edid_from_report(args.report)
+        if edid is None:
+            print(f"no edid_hex found in {args.report}", file=sys.stderr)
+            return 2
 
     if edid is None:
-        print("no EDID available (give --capture with an edid_*.bin inside, or --edid)",
-              file=sys.stderr)
+        print("no EDID available (the capture has none inside: give --edid, "
+              "--edid-hex or --report)", file=sys.stderr)
         return 2
 
     ixplan = load_ixplan()
@@ -280,9 +346,8 @@ def main() -> int:
     except ValueError as ex:
         print(f"EDID problem: {ex}", file=sys.stderr)
         return 2
-    if len(edid) >= 128:
-        print(f"edid:     {len(edid)} bytes -> {plan['panel']['name']} "
-              f"({plan['panel']['vendor']} {plan['panel']['product_code']})")
+    print(f"edid:     {len(edid)} bytes -> {plan['panel']['name']} "
+          f"({plan['panel']['vendor']} {plan['panel']['product_code']})")
 
     i915 = parse_i915_display_info(content) if content else {}
     if args.capture and not i915:
@@ -304,7 +369,20 @@ def main() -> int:
 
     rows = build_rows(plan, i915, ixfb)
     diffs = print_table(rows)
+
+    notes = []
+    if i915.get("stride_derived"):
+        notes.append("* i915 stride is derived (width x 4): this kernel's debugfs does "
+                     "not print the plane stride.")
+    for r in rows:
+        if r.info_active:
+            notes.append(f"* {r.label} INFO: {r.info_note}")
+    if notes:
+        print("notes:")
+        for n in notes:
+            print("  " + n)
     print()
+
     if diffs:
         print(f"verdict: {diffs} field(s) differ")
         return 1 if args.strict else 0

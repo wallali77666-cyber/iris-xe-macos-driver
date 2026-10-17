@@ -6,17 +6,26 @@ Builds a synthetic EDID + i915_display_info + IXFB log that *agree*, then proves
   1. ixplan computes the known-good values for a 1920x1080 panel
      (PLANE_STRIDE regression guard: 0x78 = 7680 bytes / 64)
   2. compare.py passes when all three sources agree
-  3. compare.py fails (exit 1 with --strict) when the capture has a different stride
-  4. the old-format IXFB line (no fmt/tiling/hs/vs fields) still parses
+  3. the X-tiled Linux surface shows as INFO (expected), never as a failing DIFF
+  4. a wrong htotal in the capture fails the run (exit 1 with --strict)
+  5. captures work as .tar.gz, including tar member names Windows cannot write
+     to disk (PCI-address names with a colon) - regression guard for the first
+     real capture
+  6. the old-format IXFB log line (no fmt/tiling/hs/vs fields) still parses
+
+The i915 sample mirrors the real kernel-6.12 format seen on the target laptop
+(ixcheck capture 2026-10-17).
 
 Run:  python3 tools/ixcheck/test_compare.py   (or on Windows: python ...)
 """
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -69,23 +78,27 @@ def make_edid(h=1920, hblank=160, v=1080, vblank=31,
     return bytes(b)
 
 
-DISPLAY_INFO = """\
-CRTC info
----------
-CRTC 0: active=yes, hw active=yes
-\tpipe: A
-\tmode: 1920x1080
-\thw: 1920x1080
-\tadjusted mode: 1920x1080
-\tcrtc clock: 138500 kHz
-\tpipe src size: 1920x1080
-\tpipe src pos: 0x0
-\tcrtc timings: 1920 48 32 80 1080 3 5 23 0x0 0xa
-\tfb: 0, format XRGB8888, stride 7680, tiling linear
-Connector info
---------------
-eDP-1: connected
-"""
+# Same shape as the real capture from the Latitude 5420 (kernel 6.12), with the
+# synthetic EDID's timing above: htotal 2080, vtotal 1111, pclk 138500 kHz,
+# hsync 1968-2000, vsync 1083-1088, XR24 + I915_FORMAT_MOD_X_TILED.
+DISPLAY_INFO = (
+    "CRTC info\n"
+    "---------\n"
+    "[CRTC:100:pipe A]:\n"
+    '\tuapi: enable=yes, active=yes, mode="": 60 138500 1920 1968 2000 2080 1080 1083 1088 1111 0x0 0x9\n'
+    "\thw: enable=yes, active=yes\n"
+    "\tpipe src=1920x1080+0+0, dither=no, bpp=24\n"
+    "\t[PLANE:32:plane 1A]: type=PRI\n"
+    "\t\tuapi: [FB:358] XR24 little-endian (0x34325258),0x100000000000001,1920x1080, visible=visible\n"
+    "\t\thw: [FB:358] XR24 little-endian (0x34325258),0x100000000000001,1920x1080, visible=yes\n"
+    "[CRTC:170:pipe B]:\n"
+    '\tuapi: enable=no, active=no, mode="": 0 0 0 0 0 0 0 0 0 0 0x0 0x0\n'
+    "\thw: enable=no, active=no\n"
+    "\n"
+    "Connector info\n"
+    "--------------\n"
+    "[CONNECTOR:313:eDP-1]: status: connected\n"
+)
 
 IXFB_LOG = """\
 IXFB: probe: Iris Xe 8086:9A49 (display v12)
@@ -136,32 +149,48 @@ def main() -> int:
             f.write(DISPLAY_INFO)
         with open(os.path.join(cap, "edid_card0-eDP-1.bin"), "wb") as f:
             f.write(edid)
-        with open(os.path.join(td, "ixfb.log"), "w", encoding="utf-8") as f:
+        ixfb_path = os.path.join(td, "ixfb.log")
+        with open(ixfb_path, "w", encoding="utf-8") as f:
             f.write(IXFB_LOG)
 
-        print("== 2. compare: agreeing capture + IXFB log -> pass")
-        r = run_compare("--capture", cap, "--ixfb-log", os.path.join(td, "ixfb.log"),
-                        "--strict")
+        print("== 2. compare: agreeing capture + IXFB log -> pass (tiling INFO only)")
+        r = run_compare("--capture", cap, "--ixfb-log", ixfb_path, "--strict")
         check("exit 0", r.returncode == 0, r.stdout + r.stderr)
         check("report says all agree", "all compared fields agree" in r.stdout, r.stdout)
+        check("tiling shown as INFO", "INFO" in r.stdout, r.stdout)
+        check("notes printed", "notes:" in r.stdout and "derived" in r.stdout, r.stdout)
 
-        # mutate the stride: a DIFF must appear and --strict must fail
+        # wrong htotal in the capture: a DIFF must appear and --strict must fail
         bad = os.path.join(td, "bad")
         os.makedirs(bad)
         with open(os.path.join(bad, "0_i915_display_info.txt"), "w", encoding="utf-8") as f:
-            f.write(DISPLAY_INFO.replace("stride 7680", "stride 8192"))
+            f.write(DISPLAY_INFO.replace("2000 2080 1080", "2000 2064 1080"))
         with open(os.path.join(bad, "edid_card0-eDP-1.bin"), "wb") as f:
             f.write(edid)
 
-        print("== 3. compare: wrong stride in capture -> DIFF + exit 1")
+        print("== 3. compare: wrong htotal in capture -> DIFF + exit 1")
         r = run_compare("--capture", bad, "--strict")
         check("exit 1", r.returncode == 1, r.stdout + r.stderr)
         check("DIFF reported", "DIFF" in r.stdout, r.stdout)
 
-        print("== 4. old-format IXFB log line still parses")
-        with open(os.path.join(td, "ixfb-old.log"), "w", encoding="utf-8") as f:
+        print("== 4. compare: tarball capture with a colon member name (first-real-capture shape)")
+        tarball = os.path.join(td, "capture.tar.gz")
+        with tarfile.open(tarball, "w:gz") as tf:
+            def add(name: str, data: bytes) -> None:
+                ti = tarfile.TarInfo(name)
+                ti.size = len(data)
+                tf.addfile(ti, io.BytesIO(data))
+            add("0000:00:02.0_i915_display_info.txt", DISPLAY_INFO.encode("utf-8"))
+            add("edid_card0-eDP-1.bin", edid)
+        r = run_compare("--capture", tarball, "--strict")
+        check("exit 0", r.returncode == 0, r.stdout + r.stderr)
+        check("edid found inside the tarball", "edid:" in r.stdout, r.stdout)
+
+        print("== 5. old-format IXFB log line still parses")
+        old_path = os.path.join(td, "ixfb-old.log")
+        with open(old_path, "w", encoding="utf-8") as f:
             f.write(IXFB_LOG_OLD)
-        r = run_compare("--capture", cap, "--ixfb-log", os.path.join(td, "ixfb-old.log"))
+        r = run_compare("--capture", cap, "--ixfb-log", old_path)
         check("exit 0", r.returncode == 0, r.stdout + r.stderr)
         check("totals compared from old line", "2080" in r.stdout, r.stdout)
 

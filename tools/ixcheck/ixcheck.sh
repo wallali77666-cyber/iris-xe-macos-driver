@@ -45,7 +45,15 @@ done
 for c in /sys/class/drm/card*-eDP-*; do
   [ -e "$c" ] || continue
   n="$(basename "$c")"
-  if [ -s "$c/edid" ]; then cp "$c/edid" "$WK/edid_${n}.bin"; fi
+  # NB: never test sysfs attributes with -s (they report size 0 even when they
+  # have content - this is how the first real capture lost its EDID); read
+  # first, then check what actually arrived.
+  if [ -r "$c/edid" ]; then
+    cat "$c/edid" > "$WK/edid_${n}.bin" 2>/dev/null || true
+    if [ "$(wc -c < "$WK/edid_${n}.bin" 2>/dev/null || echo 0)" -lt 128 ]; then
+      rm -f "$WK/edid_${n}.bin"
+    fi
+  fi
   if [ -r "$c/status" ]; then cat "$c/status" > "$WK/status_${n}.txt"; fi
   if [ -r "$c/modes" ]; then cat "$c/modes" > "$WK/modes_${n}.txt"; fi
 done

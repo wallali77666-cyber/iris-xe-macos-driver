@@ -62,6 +62,8 @@ system partition alone until install day.
 ## Reading the verdicts
 
 - `PASS` — every source that has the field agrees
+- `INFO` — an expected-by-design difference (explained in the notes under the
+  table; never fails the run)
 - `DIFF(i915)` — the computed plan disagrees with what the Linux driver actually
   programmed → either a real ixplan bug, or the live session picked a different
   mode (the table shows both)
@@ -71,13 +73,23 @@ system partition alone until install day.
 Tolerances apply only to *measured* values: IXFB's pixel clock ±2 MHz, refresh
 ±1.5 Hz. i915 values are exact.
 
-## When a field shows "not found"
+## The i915 column, exactly (from the first real capture, 2026-10-17)
 
-The i915 parser scans for stable markers (`crtc timings:`, `pipe src size:`,
-`crtc clock:`, `stride`, `format`, `tiling`) rather than a rigid layout, so it
-survives most kernel wording changes. If something still isn't found, the raw
-capture is already in the tarball — send it and one more pattern is added; no
-data is lost.
+The parser is written against kernel 6.12's actual `i915_display_info`, verified
+by the first live capture on the target Latitude 5420: the active CRTC's
+`uapi ... mode=` line carries clock/totals/hsync/vsync directly, and the active
+primary plane's `hw: [FB..]` line carries the DRM fourcc (`XR24` = XRGB8888)
+and format modifier. Two fields are special by design:
+
+- **stride** — debugfs does not print it; the i915 value is derived as
+  width × 4 (the driver's own pitch for this mode) and marked as such in the
+  notes under the table.
+- **tiling** — Linux allocates its own X-tiled scanout surface; macOS adopts the
+  firmware's linear one, so a tiled i915 value shows as `INFO`, not a DIFF. The
+  IXFB-vs-plan comparison stays strict.
+
+If a field ever shows "not found", the raw file is already in the tarball — one
+more pattern and it is parsed; no data is lost.
 
 ## Regression guard
 
