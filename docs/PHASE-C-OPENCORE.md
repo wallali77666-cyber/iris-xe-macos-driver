@@ -1,0 +1,141 @@
+# Phase C — OpenCore EFI for the Latitude 5420 (and other Iris Xe laptops)
+
+Status: **the EFI is produced and validated by CI** (workflow `efi`); first hardware
+boot is the next step and is debugged from logs the machine writes to the USB stick.
+
+This document is the real-machine half of Phase C. Everything listed here is
+built by `.github/workflows/efi.yml` — your laptop downloads nothing until the
+step marked **⬇ big download** below.
+
+## 1. What the CI artifact contains
+
+Artifact `iris-xe-efi` (Actions → `efi` → the run → Artifacts) =
+`iris-xe-efi.zip` — **~10–20 MB download**:
+
+```
+EFI/BOOT/BOOTx64.efi        OpenCore bootloader
+EFI/OC/OpenCore.efi         OpenCore core
+EFI/OC/Drivers/             OpenRuntime, OpenHfsPlus, ResetNvramEntry
+EFI/OC/Kexts/               Lilu, VirtualSMC(+Processor+BatteryManager),
+                            WhateverGreen, AppleALC, IntelMausi,
+                            IXFB.kext, IXRM.kext   <- our kexts, injected by OpenCore
+EFI/OC/ACPI/SSDT-PLUG.aml   CPU power management
+EFI/OC/config.plist         generated from the OpenCore release's own Sample.plist
+VERSIONS.txt                exact versions of every component in this build
+```
+
+`IXFB` being injected here matters: it claims the panel **during the installer**, so
+the macOS UI has a display even though no Apple driver supports Tiger Lake.
+
+## 2. Make the USB (Windows)
+
+1. USB stick, 8 GB or more. It will be wiped.
+2. `Win+R` → `cmd` → `diskpart`:
+
+   ```
+   list disk            (find your USB disk number)
+   select disk N
+   clean
+   convert mbr
+   create partition primary
+   format fs=fat32 quick
+   assign
+   exit
+   ```
+
+3. Unzip `iris-xe-efi.zip`, copy the `EFI` folder to the USB root.
+   Result: `USB:\EFI\BOOT\BOOTx64.efi` …
+4. macOS Recovery (**⬇ ~650–700 MB download** — do this only when you are ready;
+   exact size depends on Apple):
+   - get `macrecovery.py` from OpenCorePkg (`Utilities/macrecovery/`) — a few KB;
+   - run:
+
+     ```
+     python macrecovery.py -b Mac-27AD2F918AE68F61 -m 00000000000000000 download
+     ```
+
+     It creates `com.apple.recovery.boot\` (BaseSystem.dmg + .contentDetails).
+   - copy that folder next to `EFI` on the USB.
+   - If Apple rejects the board id (error instead of download), stop and tell me —
+     the id is fixed in CI, not on your side.
+
+Final USB layout:
+
+```
+USB:\EFI\...                              (from the CI zip)
+USB:\com.apple.recovery.boot\...          (from macrecovery)
+```
+
+## 3. BIOS (Latitude 5420)
+
+| Setting | Value |
+|---|---|
+| Secure Boot | Disabled (required) |
+| SATA Operation | AHCI |
+| TPM / PTT | Disabled (recommended) |
+| CFG Lock | Disable if offered, otherwise the config's AppleXcpmCfgLock covers it |
+| VT-d | may stay on (config sets DisableIoMapper) |
+| Fast Boot | Thorough / off |
+
+Recommended: update the BIOS to the latest Dell release first — display
+bring-up depends on the firmware leaving the panel lit when it hands off.
+
+## 4. Boot
+
+1. Plug in the USB, power on, `F12` → boot menu → the USB.
+2. OpenCore text picker appears. Pick **macOS Base System**.
+3. Verbose text scrolls. The installer UI should appear (slowly — no
+   acceleration). If the screen goes black after the Apple logo phase,
+   **the machine is still running**: see §5.
+
+## 5. If something goes wrong (it will be debugged from logs)
+
+The config writes its logs to the USB ESP for you:
+
+- `USB:\EFI\opencore-*.txt` — OpenCore's own log
+- `USB:\SysReport\` — ACPI table dump (fixes SSDT names, EC/AWAC decisions)
+- kernel-side: boot is already `-v debug=0x100 keepsyms=1`; the `IXFB:` and `IXRM:`
+  lines are the interesting ones
+
+Send me those files after a failed attempt; every iteration happens in CI/config,
+nothing on your side changes except the USB.
+
+### Quirks we picked, and the fallbacks
+
+| Where | Value | If boot stalls, try |
+|---|---|---|
+| Booter › SetupVirtualMap | true | very early hang (`OCB:` lines) → false |
+| Booter › DevirtualiseMmio | false | early hang after memory map → true |
+| Booter › RebuildAppleMemoryMap | true | keep |
+| Booter › SyncRuntimePermissions | true | keep (needed on most TGL boards) |
+| Booter › ProtectUefiServices | true | keep |
+| Booter › EnableWriteUnprotector | false | keep |
+| Kernel › AppleXcpmCfgLock | true | keep (Dell BIOS hides the toggle) |
+| Kernel › DisableIoMapper | true | keep (VT-d stays enabled in BIOS) |
+| Misc › SecureBootModel | Disabled | required — our kexts are unsigned |
+| Misc › ScanPolicy | 0 | keep (shows every volume) |
+| SMBIOS | MacBookPro16,2 | serials generated in CI when macserial is available |
+
+Change one thing at a time and keep the log files — that is the whole loop.
+
+## 6. After the installer finishes
+
+1. Reboot into the installed system (same USB EFI works).
+2. That first boot is Phase C step 2: compare the `IXFB:` log lines against the
+   `tools/ixplan` plan (expected for B140HAK: format 8 = XRGB8888, stride 0x78,
+   HTOTAL/VTOTAL from `ixplan.py`). The log prints what the firmware left lit.
+3. Install the kexts into the system: `sudo sh package/install.sh` (from the repo).
+4. Optional, later, each with size reported first: Wi-Fi (`itlwm` + HeliPort),
+   Bluetooth (`IntelBluetoothFirmware` + `BlueToolFixup`), USB map (USBToolBox).
+
+## 7. Deliberately not in this EFI yet
+
+- `SSDT-USBX`, `SSDT-AWAC`, `SSDT-PNLF` — they need the machine's real ACPI tables;
+  they come out of the `SysReport\` dump of this first boot.
+- OpenCanopy GUI picker/themes — the text picker is enough for bring-up.
+- Serial numbers, if `macserial` was unavailable in the CI run — generate later
+  with GenSMBIOS (Windows) and paste 3 values into `PlatformInfo › Generic`.
+
+Sources of truth: `tools/efi/assemble.sh` (what gets downloaded/bundled),
+`tools/efi/configure.py` (every config value we set, with reasons),
+`VERSIONS.txt` inside the zip (what you actually got).

@@ -1,0 +1,44 @@
+name: efi
+
+on:
+  push:
+    paths:
+      - 'efi/**'
+      - 'tools/efi/**'
+      - 'kexts/**'
+      - 'build/**'
+      - '.github/workflows/efi.yml'
+  workflow_dispatch:
+
+jobs:
+  # Builds the complete EFI folder (OpenCore + Acidanthera kexts + our IXFB/IXRM +
+  # SSDTs) entirely on GitHub's macOS runner, validates the config with the very
+  # release's own ocvalidate, then uploads one zip. Nothing is downloaded by the
+  # target machine to build this.
+  efi-macos:
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: ACPI compiler (iasl)
+        run: |
+          command -v iasl >/dev/null 2>&1 || brew install acpica
+          iasl -v | head -n 2 || true
+      - name: Build IXFB + IXRM
+        run: sh build/build_all.sh
+      - name: Assemble EFI (downloads OpenCore + kexts here, on the runner)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: sh tools/efi/assemble.sh
+      - name: Show the generated config (readable)
+        run: plutil -p dist/efi/EFI/OC/config.plist
+      - name: Show versions + size
+        run: cat dist/efi/VERSIONS.txt && ls -lh dist/efi/iris-xe-efi.zip
+      - name: Upload EFI
+        uses: actions/upload-artifact@v4
+        with:
+          name: iris-xe-efi
+          path: dist/efi/iris-xe-efi.zip
+          if-no-files-found: error

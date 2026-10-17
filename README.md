@@ -19,13 +19,16 @@ their `translator/` is LGPL-3.0 as it derives from metal2vulkan).
 |---|---|---|
 | A | **IrisProbe** — hardware sniffer + laptop OpenCore plist generator | ✅ built, run on target |
 | B | Driver scaffold mirroring NullMoth: kexts / Metal plugin / translator / ANV back end | 🟨 scaffolded: `kexts/` IXFB+IXRM+IXAccel+IXAGDC, `plugin/` stub, `build/`, `package/`, CI |
-| C | Bring-up tooling on macOS (EDID→register planner, MMIO tracing, display Phase-1 takeover) | ⬜ planned |
+| C | Bring-up tooling on macOS (EDID→register planner, MMIO tracing, display Phase-1 takeover) | 🟨 OpenCore EFI assembles + validates in CI (`docs/PHASE-C-OPENCORE.md`); hardware boot pending |
 | D | Metal acceleration (AIR→SPIR-V → Mesa ANV → new Intel kernel driver) | ⬜ research |
 
 ## Layout
 
 ```
 tools/irisprobe/     hardware sniffer (Python, stdlib only, runs on Windows)
+tools/ixplan/        EDID -> display register plan (validated against i915)
+tools/efi/           assembles the ready OpenCore EFI from the latest releases (CI)
+efi/                 OpenCore EFI sources (SSDT .dsl; the zip lives in CI artifacts)
 reports/             sniffer output (git-ignored): report + plist + notes
 kexts/               IXFB (framebuffer), IXRM (resource manager), IXAccel, IXAGDC
 plugin/IXMTLDriver/  the Metal driver bundle (stub until Phase D)

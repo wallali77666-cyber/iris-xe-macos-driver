@@ -39,11 +39,16 @@ validated against recorded i915 MMIO traces.
 **Status (2026-10-17):** B1 scaffold, B2 `ixplan` (PLANE_STRIDE corrected to 64-byte
 units per i915), B3 IXFB Phase-1 takeover and B4 IXRM probe are implemented and build
 green in GitHub Actions; each step's hardware verification lands with Phase C.
+The Phase C prerequisite — the OpenCore EFI (OpenCore + kexts + our IXFB/IXRM,
+config generated from the release's own Sample.plist and ocvalidate-checked) —
+is now assembled by the `efi` workflow: see `docs/PHASE-C-OPENCORE.md`.
 
 ## Phase C — Bring-up on the target laptop
 
+0. Get the CI-built EFI (`iris-xe-efi` artifact), put it on a USB with a macOS
+   Recovery image — full steps, sizes and BIOS table in `docs/PHASE-C-OPENCORE.md`.
 1. Boot macOS Sequoia via OpenCore on the Latitude 5420 (no iGPU driver: display comes from
-   the firmware framebuffer path; expect a very slow, unaccelerated desktop).
+   the firmware framebuffer path until IXFB claims the pipe; expect a very slow, unaccelerated desktop).
 2. Build `IXFB` Phase 1 (firmware-lit pipe takeover, like `NMIntelFB`) → internal panel shows a
    real `IOFramebuffer` with correct size/refresh.
 3. Bring the `igfx`-style planner over: EDID → transcoder/pipe/plane register values, validated
