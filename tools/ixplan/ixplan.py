@@ -85,8 +85,9 @@ def plan(m: dict) -> dict:
         "VBLANK":      {"off": "0x60010", "value": reg(((vtotal - 1) << 16) | (vactive - 1)), "what": "v blank end / start"},
         "VSYNC":       {"off": "0x60014", "value": reg(((vsync_e - 1) << 16) | (vsync_s - 1)), "what": "v sync end / start"},
         "PIPESRC":     {"off": "0x6001C", "value": reg(((hactive - 1) << 16) | (vactive - 1)), "what": "pipe source size"},
-        # plane block: 0x70180 + 0x1000 per pipe (pipe 0 here; the lit pipe is found at runtime)
-        "PLANE_STRIDE": {"off": "0x70188", "value": reg(align64(hactive * 4)), "what": "linear stride, 64B aligned"},
+        # plan block: 0x70180 + 0x1000 per pipe (pipe 0 here; the lit pipe is found at runtime)
+        # PLANE_STRIDE counts 64-byte units on a linear surface (i915 writes stride / 64)
+        "PLANE_STRIDE": {"off": "0x70188", "value": reg(align64(hactive * 4) // 64), "what": "linear stride in 64-byte units"},
         "PLANE_SIZE":   {"off": "0x70190", "value": reg(((hactive - 1) << 16) | (vactive - 1)), "what": "plane source size (1:1)"},
     }
     warn = []

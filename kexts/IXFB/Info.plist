@@ -16,9 +16,10 @@
       <!-- reference machine: Dell Latitude 5420, i5-1145G7, Iris Xe (Tiger Lake) -->
       <key>IOPCIMatch</key><string>0x9A498086</string>
       <key>IOPCIClassMatch</key><string>0x03000000&amp;0xff000000</string>
-      <!-- above the firmware framebuffer; if probe()/start() decline, that one keeps the panel -->
+      <!-- IOFramebuffer match category: compete with the firmware framebuffer for the
+           panel; if start()/enableController() decline, that one keeps the console -->
+      <key>IOMatchCategory</key><string>IOFramebuffer</string>
       <key>IOProbeScore</key><integer>60000</integer>
-      <!-- Phase C: once IXFB subclasses IOFramebuffer, add: <key>IOMatchCategory</key><string>IOFramebuffer</string> -->
     </dict>
   </dict>
   <key>OSBundleLibraries</key><dict>

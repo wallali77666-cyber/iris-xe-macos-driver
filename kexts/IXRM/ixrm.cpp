@@ -11,7 +11,9 @@
 // possible by publishing open GPU kernel modules; Intel has no such macOS-usable
 // code, so IXRM is written from the register documentation and i915 behavior instead.
 //
-// Scaffold state: probes the iGPU, logs, declines. Nothing claims the device yet.
+// Phase B state: real probe. Maps both BARs (read-only use), identifies the part from
+// PCI configuration space, logs what a bring-up would face, and declines. Nothing is
+// claimed and nothing is written — Phase D flips it on together with IXFB's surface.
 
 #include <IOKit/IOLib.h>
 #include <IOKit/pci/IOPCIDevice.h>
@@ -44,12 +46,43 @@ IOService *com_irisxe_IXRM::probe(IOService *provider, SInt32 *score) {
 bool com_irisxe_IXRM::start(IOService *provider) {
     if (!IOService::start(provider)) return false;
     IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, provider);
-    UInt16 devId = pci ? pci->configRead16(kIOPCIConfigDeviceID) : 0;
-    IXRMLOG("start: device %04X — scaffold, no GPU bring-up yet", devId);
+    if (!pci) { IOService::stop(provider); return false; }
 
-    // TODO(Phase D): map BAR0 (MMIO) and BAR2 (aperture), upload GuC/HuC firmware,
-    // initialize the rings, expose the IOUserClient the Vulkan back end will use.
+    // --- identification (config space only) --------------------------------
+    const UInt16 devId  = pci->configRead16(kIOPCIConfigDeviceID);
+    const UInt16 vendId = pci->configRead16(kIOPCIConfigVendorID);
+    const UInt16 ssId   = pci->configRead16(kIOPCIConfigSubSystemID);
+    const UInt16 ssVend = pci->configRead16(kIOPCIConfigSubSystemVendorID);
+    const UInt8  rev    = pci->configRead8(kIOPCIConfigRevisionID);
+    IXRMLOG("probe: %04X:%04X rev %02X, subsys %04X:%04X at PCI %u:%u.%u",
+            vendId, devId, rev, ssVend, ssId,
+            pci->getBusNumber(), pci->getDeviceNumber(), pci->getFunctionNumber());
+
+    // --- map the two windows a full bring-up needs -------------------------
+    IOMemoryMap *bar0 = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0);
+    IOMemoryMap *bar2 = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress2);
+    IXRMLOG("BAR0 (MMIO registers): %s, %llu bytes",
+            bar0 ? "mapped" : "UNAVAILABLE",
+            bar0 ? (unsigned long long)bar0->getLength() : 0ull);
+    IXRMLOG("BAR2 (graphics aperture): %s, %llu bytes",
+            bar2 ? "mapped" : "UNAVAILABLE",
+            bar2 ? (unsigned long long)bar2->getLength() : 0ull);
+
+    if (bar0) {
+        // One raw read for the record; not interpreted (no name attached to offset
+        // 0x0000 is asserted here). Real register decode lands in Phase D with the
+        // ixcheck trace baseline.
+        volatile UInt32 *regs = (volatile UInt32 *)bar0->getVirtualAddress();
+        IXRMLOG("MMIO[00000] = %08X (raw, uninterpreted)", regs ? regs[0] : 0u);
+    }
+
+    IXRMLOG("bring-up plan (Phase D): GGTT/PPGTT setup, GuC/HuC upload from a user-space");
+    IXRMLOG("  loader, RCS/BCS/VCS engine bring-up, IOUserClient API for the Vulkan back end");
+
+    // --- still declining ----------------------------------------------------
     IXRMLOG("start: declining until Phase D (IXRM bring-up)");
+    if (bar2) bar2->release();
+    if (bar0) bar0->release();
     IOService::stop(provider);
     return false;
 }
