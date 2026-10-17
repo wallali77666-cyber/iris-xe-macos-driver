@@ -87,6 +87,12 @@ piece of it is additive and removable:
 - `com.apple.recovery.boot` → the **SHARE** FAT32 partition made for ixcheck
   (needs ~1 GB free; only the recovery folder goes there)
 
+**Shortcut:** `tools\efi\install-opencore-esp.cmd` (double-click, accept UAC)
+performs 2b.1 and 2b.2 in one step — it mounts the ESP, refreshes `EFI\OC`,
+registers the firmware entry, prints ESP free space and the undo commands, and
+never touches `EFI\Microsoft` / `EFI\BOOT`. The manual steps below remain the
+reference (and the fallback if the script's output shows anything unexpected).
+
 ### 2b.1 Copy OpenCore to the ESP
 
 Get the artifact as in section 1 and unzip it somewhere convenient (Desktop is
