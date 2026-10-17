@@ -40,6 +40,15 @@ PASS / DIFF per row. `tools/ixcheck/ixcheck.sh` produces the i915 side.
 a live image — Fedora Workstation ≈ 2.5 GB, Ubuntu Desktop ≈ 6 GB, Kali ≈ 4 GB.
 Your choice; nothing happens until you say go.
 
+**Carrier options (getting the script in, the tarball out):** a second plain FAT32
+USB stick is the simplest. With no spare stick, a small FAT32 partition on the
+internal disk works the same way: Windows -> Disk Management -> shrink a volume by
+~1 GB -> "New Simple Volume", **FAT32**, label it `SHARE`; Kali auto-mounts it
+under `/media/kali/SHARE`. The tarball is only a few hundred KB. Do *not* write into
+the Windows system partition from Linux instead - fast startup/hibernation makes
+that the one route that can actually corrupt something. And leave the existing EFI
+system partition alone until install day.
+
 ## What the capture contains (all read-only)
 
 | file | why |
