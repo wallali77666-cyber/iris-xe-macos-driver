@@ -11,6 +11,10 @@
 # The pinned tag matches the kernel the first real hardware capture came from
 # (Kali 6.12 on the Latitude 5420), so plan, capture and facts all agree.
 #
+# v2 (2026-10-17): after the first run, print whole function bodies
+#   (ggtt_probe_common, gen8_gmch_probe, ggtt_probe_hw, both pte encoders) and
+#   anchored #define lines, so formulas AND values come out in one run.
+#
 # Usage:  bash tools/ixgen/fetch_i915.sh [TAG] [OUTDIR]
 #         (defaults: v6.12, i915-ref/)
 set -euo pipefail
@@ -86,59 +90,92 @@ for f in "$OUT"/*.c "$OUT"/*.h; do
   if [ -e "$f" ]; then SRC+=("$f"); fi
 done
 
+search() { # search <limit> <pattern> <files...>
+  local limit="$1" pat="$2"; shift 2
+  grep -nH -E "$pat" "$@" 2>/dev/null | head -n "$limit" | tee -a "$EX" || true
+}
+
+fnbody() { # fnbody <file> <start-regex> <limit> — whole function body, no cuts
+  local file="$1" pat="$2" limit="$3"
+  [ -f "$file" ] || return 0
+  awk -v pat="$pat" -v limit="$limit" '
+    $0 ~ pat { f=1 }
+    f { printf "%s:%d:%s\n", FILENAME, FNR, $0 }
+    f && (/^}/ || n++ >= limit) { exit }
+  ' "$file" | tee -a "$EX" || true
+}
+
 say ""
 say "=============================================================="
-say " SECTION 1 — GGTT: where the page tables live (BAR0 window)"
+say " SECTION 1 — GGTT: where the page tables live (and how they map)"
 say "=============================================================="
-# The GGTT (global GTT) entry array lives in an MMIO window inside BAR0; the
-# probe code computes/derives its offset. This is the lookup D1 depends on.
 if [ "${#SRC[@]}" -gt 0 ]; then
-  grep -nH -E "gtt_base|GTT_BASE|GTT_OFFSET|gtt_offset|0x800000|ggtt->regs|ggtt->gsm" "${SRC[@]}" 2>/dev/null \
-    | head -n 60 | tee -a "$EX" || true
+  search 60 "gtt_base|GTT_BASE|GTT_OFFSET|gtt_offset|ggtt->gsm|0x800000" "${SRC[@]}"
 fi
 
-if [ -f "$OUT/intel_ggtt.c" ]; then
-  say ""
-  say "--- intel_ggtt.c: probe functions (definition heads)"
-  grep -nH -E "^static.*(probe|setup)|^int intel_ggtt|^void intel_ggtt" "$OUT/intel_ggtt.c" 2>/dev/null \
-    | head -n 40 | tee -a "$EX" || true
-fi
+say ""
+say "--- ggtt_probe_common(): the mapping and where phys_addr comes from"
+fnbody "$OUT/intel_ggtt.c" "ggtt_probe_common" 100
+
+say ""
+say "--- gen8_gmch_probe(): GTT size derivation"
+fnbody "$OUT/intel_ggtt.c" "gen8_gmch_probe" 100
+
+say ""
+say "--- ggtt_probe_hw()"
+fnbody "$OUT/intel_ggtt.c" "ggtt_probe_hw" 60
+
+say ""
+say "--- resource/phys_addr/mappable mentions (intel_ggtt.c)"
+search 40 "phys_addr|pci_resource_len|pci_resource_start|mappable_end|vm\.total" "$OUT/intel_ggtt.c"
 
 say ""
 say "=============================================================="
 say " SECTION 2 — PTE encoding (what a GGTT entry looks like)"
 say "=============================================================="
-if [ -f "$OUT/gen8_ppgtt.c" ]; then
-  say "--- gen8_pte_encode: every mention + context (gen8_ppgtt.c)"
-  grep -nH -A35 "gen8_pte_encode" "$OUT/gen8_ppgtt.c" 2>/dev/null \
-    | head -n 200 | tee -a "$EX" || true
+say "--- gen8_pte_encode(): whole body"
+fnbody "$OUT/gen8_ppgtt.c" "static u64 gen8_pte_encode" 40
+
+say ""
+say "--- gen12_pte_encode(): whole body (Tiger Lake is gen12)"
+fnbody "$OUT/gen8_ppgtt.c" "static u64 gen12_pte_encode" 40
+
+say ""
+say "--- which encoder the GGTT itself uses"
+search 30 "pte_encode" "$OUT/intel_ggtt.c" "$OUT/gen8_ppgtt.c" "$OUT/intel_gtt.h"
+
+say ""
+say "--- anchored #define lines: the numeric values (all fetched files)"
+if [ "${#SRC[@]}" -gt 0 ]; then
+  search 160 "^#define[[:space:]]+(GEN8_PAGE|PPAT_|GEN12_PPGTT_PTE|GEN8_PDE|PTE_|I915_GTT_PAGE|_PAGE_|PHYSICAL)" "${SRC[@]}"
 fi
 
 say ""
-say "--- PTE/PDE flag definitions (all fetched files)"
+say "--- pte_t typedefs (entry width)"
 if [ "${#SRC[@]}" -gt 0 ]; then
-  grep -nH -E "_PAGE_PRESENT|_PAGE_RW|PPAT_|PAT_INDEX|GEN12_PPGTT_PTE|GEN8_PDE_" "${SRC[@]}" 2>/dev/null \
-    | head -n 80 | tee -a "$EX" || true
+  search 20 "typedef.*pte_t" "${SRC[@]}"
 fi
+
+say ""
+say "--- addresses masks / GENMASK use in entry setup"
+search 40 "ADDR_MASK|GENMASK" "$OUT/gen8_ppgtt.c" "$OUT/intel_ggtt.c"
 
 say ""
 say "=============================================================="
 say " SECTION 3 — GGTT object layouts (what IXRM must mirror)"
 say "=============================================================="
-if [ -f "$OUT/intel_gtt.h" ]; then
-  say "--- struct i915_ggtt (intel_gtt.h)"
-  grep -nH -A16 "struct i915_ggtt {" "$OUT/intel_gtt.h" 2>/dev/null \
-    | head -n 40 | tee -a "$EX" || true
-  say ""
-  say "--- PTE read/write helpers (intel_gtt.h)"
-  grep -nH -B1 -A12 -E "write_pte|read_pte|ggtt_get_pte|ggtt->vm.pt" "$OUT/intel_gtt.h" 2>/dev/null \
-    | head -n 60 | tee -a "$EX" || true
-fi
+say "--- struct i915_ggtt (intel_gtt.h)"
+fnbody "$OUT/intel_gtt.h" "struct i915_ggtt {" 40
+
+say ""
+say "--- PTE array access patterns + index math (intel_ggtt.c)"
+search 50 "gsm \\+|first_entry|I915_GTT_PAGE_SIZE" "$OUT/intel_ggtt.c"
 
 # --- fact summary (quick scan for the CI log) ---------------------------------
 say ""
 say "== key-fact hit counts (0 = file moved; see MISS list above)"
-for pat in "gtt_offset|gtt_base|GTT_BASE" "0x800000" "gen8_pte_encode" "_PAGE_PRESENT"; do
+for pat in "gtt_offset|gtt_base|GTT_BASE" "0x800000" "gen8_pte_encode" "gen12_pte_encode" \
+           "GEN8_PAGE_PRESENT" "PPAT_|GEN12_PPGTT_PTE" "pci_resource_len"; do
   n="$(grep -chE "$pat" "${SRC[@]}" 2>/dev/null | awk '{s+=$1} END {print s+0}' || true)"
   say "  $pat: $n"
 done
