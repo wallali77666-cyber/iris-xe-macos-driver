@@ -79,10 +79,16 @@ for a in d["assets"]:
   unzip -oq "$TMP/oc/$(basename "$url")" -d "$TMP/oc"
 done
 
-[ -f "$TMP/oc/EFI/BOOT/BOOTx64.efi" ] || die "BOOTx64.efi not found in OpenCore release"
-[ -f "$TMP/oc/EFI/OC/OpenCore.efi" ] || die "OpenCore.efi not found in OpenCore release"
-cp "$TMP/oc/EFI/BOOT/BOOTx64.efi" "$EFI/BOOT/"
-cp "$TMP/oc/EFI/OC/OpenCore.efi" "$EFI/OC/"
+[ -d "$TMP/oc" ] || die "OpenCore download/extract failed"
+log "release layout (top levels):"
+find "$TMP/oc" -mindepth 1 -maxdepth 2 | sort | head -n 20 | sed 's|^|  |'
+
+BOOTX64=$(find "$TMP/oc" -type f -name BOOTx64.efi | head -n 1)
+OCORE=$(find "$TMP/oc" -type f -name OpenCore.efi | head -n 1)
+[ -n "$BOOTX64" ] || die "BOOTx64.efi not found anywhere in the OpenCore release"
+[ -n "$OCORE" ] || die "OpenCore.efi not found anywhere in the OpenCore release"
+cp "$BOOTX64" "$EFI/BOOT/BOOTx64.efi"
+cp "$OCORE" "$EFI/OC/OpenCore.efi"
 
 DRIVERS=""
 for d in OpenRuntime.efi OpenHfsPlus.efi ResetNvramEntry.efi; do
