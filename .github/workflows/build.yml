@@ -33,6 +33,9 @@ jobs:
         run: |
           python -m py_compile tools/irisprobe/irisprobe.py
           python tools/irisprobe/irisprobe.py
+      - name: Plan display registers from the sniffed panel (ixplan)
+        shell: pwsh
+        run: python tools/ixplan/ixplan.py --report reports/irisprobe-report.json
       - name: Upload sniffer report
         uses: actions/upload-artifact@v4
         with:
