@@ -1,0 +1,7 @@
+# keep shell scripts and Python LF in the repository regardless of client OS
+*.sh text eol=lf
+*.py text eol=lf
+*.inc text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.m text eol=lf

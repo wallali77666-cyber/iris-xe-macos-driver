@@ -1,5 +1,7 @@
 # iris-xe-macos-driver
 
+[![build](https://github.com/wallali77666-cyber/iris-xe-macos-driver/actions/workflows/build.yml/badge.svg)](https://github.com/wallali77666-cyber/iris-xe-macos-driver/actions/workflows/build.yml)
+
 Native macOS support project for **Intel Iris Xe (Tiger Lake, Gen12)** integrated graphics,
 modeled after [NullMoth's NVIDIA driver](https://github.com/nullmoth/nvidia-macos-driver)
 architecture (study clone kept at `../nvidia-macos-driver`).
@@ -16,7 +18,7 @@ their `translator/` is LGPL-3.0 as it derives from metal2vulkan).
 | Phase | What | State |
 |---|---|---|
 | A | **IrisProbe** — hardware sniffer + laptop OpenCore plist generator | ✅ built, run on target |
-| B | Driver scaffold mirroring NullMoth: kexts / Metal plugin / translator / ANV back end | ⬜ planned (see `docs/ROADMAP.md`) |
+| B | Driver scaffold mirroring NullMoth: kexts / Metal plugin / translator / ANV back end | 🟨 scaffolded: `kexts/` IXFB+IXRM+IXAccel+IXAGDC, `plugin/` stub, `build/`, `package/`, CI |
 | C | Bring-up tooling on macOS (EDID→register planner, MMIO tracing, display Phase-1 takeover) | ⬜ planned |
 | D | Metal acceleration (AIR→SPIR-V → Mesa ANV → new Intel kernel driver) | ⬜ research |
 
@@ -25,7 +27,13 @@ their `translator/` is LGPL-3.0 as it derives from metal2vulkan).
 ```
 tools/irisprobe/     hardware sniffer (Python, stdlib only, runs on Windows)
 reports/             sniffer output (git-ignored): report + plist + notes
+kexts/               IXFB (framebuffer), IXRM (resource manager), IXAccel, IXAGDC
+plugin/IXMTLDriver/  the Metal driver bundle (stub until Phase D)
+translator/          Apple AIR → SPIR-V (LGPL boundary, no code yet)
+build/               build scripts (run by CI on macOS runners)
+package/             install.sh / uninstall.sh for the target machine
 docs/ROADMAP.md      the full plan, mirroring NullMoth's stack onto Intel Gen12
+.github/workflows/   CI: builds everything on GitHub's macOS machines
 ```
 
 ## Run the sniffer

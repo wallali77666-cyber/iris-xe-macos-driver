@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>com.irisxe.IXAGDC</string>
+  <key>CFBundleName</key><string>IXAGDC</string>
+  <key>CFBundleExecutable</key><string>IXAGDC</string>
+  <key>CFBundlePackageType</key><string>KEXT</string>
+  <key>CFBundleVersion</key><string>0.1</string>
+  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>IOKitPersonalities</key><dict>
+    <key>IXAGDC</key><dict>
+      <key>CFBundleIdentifier</key><string>com.irisxe.IXAGDC</string>
+      <key>IOClass</key><string>com_irisxe_IXAGDC</string>
+      <key>IOProviderClass</key><string>IOPCIDevice</string>
+      <key>IOPCIMatch</key><string>0x9A498086</string>
+      <!-- Phase C: IXAGDC answers AppleGraphicsDevicePolicy's questions for this GPU
+           (which display is the boot display, caps, head mapping). -->
+      <key>IOProbeScore</key><integer>5000</integer>
+    </dict>
+  </dict>
+  <key>OSBundleLibraries</key><dict>
+    <key>com.apple.kpi.iokit</key><string>8.0</string>
+    <key>com.apple.kpi.libkern</key><string>8.0</string>
+    <key>com.apple.kpi.mach</key><string>8.0</string>
+    <key>com.apple.iokit.IOPCIFamily</key><string>1.0.0</string>
+  </dict>
+</dict></plist>

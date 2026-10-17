@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>com.irisxe.IXMTLDriver</string>
+  <key>CFBundleName</key><string>IXMTLDriver</string>
+  <key>CFBundleExecutable</key><string>IXMTLDriver</string>
+  <key>CFBundlePackageType</key><string>BNDL</string>
+  <key>CFBundleVersion</key><string>0.1</string>
+  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <!-- Phase D: Metal loads driver bundles from /Library/GPUBundles for matching GPUs.
+       The exact discovery keys are part of the reverse-engineered contract and will be
+       filled in when the plugin actually implements Metal objects. -->
+</dict></plist>
