@@ -129,7 +129,11 @@ OSDefineMetaClassAndStructors(com_irisxe_IXFB, IOFramebuffer)
 IOService *com_irisxe_IXFB::probe(IOService *provider, SInt32 *score) {
     IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, provider);
     if (!pci) return nullptr;
-    if (PE_parse_boot_argn("-ixfboff", nullptr, 0)) { IXFBLOG("disabled by boot-arg -ixfboff"); return nullptr; }
+    char argbuf[8];
+    if (PE_parse_boot_argn("-ixfboff", argbuf, sizeof(argbuf))) {
+        IXFBLOG("disabled by boot-arg -ixfboff");
+        return nullptr;
+    }
     const UInt16 devId = pci->configRead16(kIOPCIConfigDeviceID);
     UInt8 ver = 0;
     for (const IXId &e : kIXIds) if (e.id == devId) { ver = e.version; break; }
@@ -154,6 +158,10 @@ bool com_irisxe_IXFB::start(IOService *provider) {
     fRegs = (volatile UInt8 *)fMMIO->getVirtualAddress();
     fApertureBase = ap->getPhysicalAddress();
     fApertureLen = ap->getLength();
+    IXFBLOG("BAR0 %llu MiB, BAR2 aperture %llu MiB at 0x%llX",
+            (unsigned long long)(fMMIO->getLength() >> 20),
+            (unsigned long long)(fApertureLen >> 20),
+            (unsigned long long)fApertureBase);
 
     if (!adoptLitPipe()) {
         OSSafeReleaseNULL(fMMIO);

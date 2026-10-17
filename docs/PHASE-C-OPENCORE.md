@@ -97,6 +97,9 @@ The config writes its logs to the USB ESP for you:
 - kernel-side: boot is already `-v debug=0x100 keepsyms=1`; the `IXFB:` and `IXRM:`
   lines are the interesting ones
 
+- To boot with the panel left entirely to the firmware (IXFB disabled), add
+  `-ixfboff` to `boot-args` — useful when bisecting a bad screen.
+
 Send me those files after a failed attempt; every iteration happens in CI/config,
 nothing on your side changes except the USB.
 
@@ -124,7 +127,9 @@ Change one thing at a time and keep the log files — that is the whole loop.
 2. That first boot is Phase C step 2: compare the `IXFB:` log lines against the
    `tools/ixplan` plan (expected for B140HAK: format 8 = XRGB8888, stride 0x78,
    HTOTAL/VTOTAL from `ixplan.py`). The log prints what the firmware left lit.
-3. Install the kexts into the system: `sudo sh package/install.sh` (from the repo).
+3. Nothing to install: the EFI already loads IXFB/IXRM on every boot.
+   `package/install.sh` exists only for the optional /Library/Extensions route
+   (see its header — the injected path is the supported one).
 4. Optional, later, each with size reported first: Wi-Fi (`itlwm` + HeliPort),
    Bluetooth (`IntelBluetoothFirmware` + `BlueToolFixup`), USB map (USBToolBox).
 

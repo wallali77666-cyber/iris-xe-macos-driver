@@ -1,8 +1,13 @@
 #!/bin/sh
-# iris-xe installer — scaffold phase. Runs as root on macOS.
-# Copies the kexts into /Library/Extensions and rebuilds the auxiliary kernel collection.
-# A guarded installer with rollback (like the NullMoth one) arrives once the stack
-# actually loads and there is something to roll back.
+# iris-xe kext installer for the /Library/Extensions (auxiliary kernel collection) route.
+#
+# IMPORTANT — Phase C does not need this script: the CI-built OpenCore EFI
+# (docs/PHASE-C-OPENCORE.md) already injects IXFB/IXRM on every boot, installer
+# included. Use this script only if you deliberately want the kexts resident in
+# macOS itself (for example after removing them from the EFI config).
+#
+# Runs as root on macOS. Copies the kexts into /Library/Extensions and rebuilds the
+# auxiliary kernel collection with kmutil (the method studied from NullMoth's installer).
 #
 # usage: sudo sh package/install.sh [payload-dir]      (default payload: package/pkgroot)
 set -eu
@@ -10,6 +15,9 @@ PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH
 HERE=$(cd "$(dirname "$0")" && pwd)
 PAYLOAD=${1:-$HERE/pkgroot}
 KEXTS="IXFB IXRM IXAccel IXAGDC"
+
+[ "$(id -u)" = 0 ] || { echo "STOP: run as root:  sudo sh package/install.sh"; exit 1; }
+command -v kmutil >/dev/null 2>&1 || { echo "STOP: kmutil not found (this script runs on macOS)"; exit 1; }
 
 echo "== checking payload in $PAYLOAD"
 for k in $KEXTS; do
@@ -38,14 +46,14 @@ kmutil create -n aux --allow-missing-kdk -a x86_64 --volume-root / $KARG \
 
 cat <<'EOF'
 
-== done. Before rebooting, wire OpenCore (see reports/iris-config-notes.md for the
-   exact machine-specific values):
+== done. Reboot to load the kexts.
 
-   NVRAM > Add > 7C436110-AB2A-4BBB-A880-FE41995C9F82
-     boot-args        iris=1 irisfb=1 irisaccel=1 amfi_get_out_of_my_way=0x1 amfi=0x80 ipc_control_port_options=0
-     csr-active-config <430A0000>
-   Misc > Security > SecureBootModel: Disabled
-   (and add every key you set to NVRAM > Delete as well)
-
-   then: sudo shutdown -r now
+   Notes:
+   - SecureBootModel must be Disabled for unsigned kexts (the CI EFI already sets
+     this). If kmutil refuses the collection with a signature error, this route is
+     blocked on your install — keep using OpenCore injection instead, which is the
+     default path anyway.
+   - To keep the panel on the firmware framebuffer for one boot, add boot-arg
+     -ixfboff (IXFB declines and the screen is left alone).
+   - Details and the hardware-bring-up steps: docs/PHASE-C-OPENCORE.md
 EOF

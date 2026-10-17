@@ -55,3 +55,8 @@ jobs:
           bash tools/ixcheck/ixcheck.sh --help
       - name: Comparator self-test (synthetic i915 capture vs ixplan vs IXFB log)
         run: python3 tools/ixcheck/test_compare.py
+      - name: All shell scripts parse
+        run: |
+          for f in build/*.sh tools/efi/assemble.sh tools/ixcheck/ixcheck.sh package/*.sh; do
+            bash -n "$f" && echo "parsed: $f"
+          done
