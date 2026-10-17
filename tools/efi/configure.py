@@ -217,7 +217,8 @@ def main(argv=None) -> int:
 
     # --- Misc ----------------------------------------------------------------
     for k, v in {
-        "HideAuxiliary": True,          # recovery/tools live behind the space bar
+        "HideAuxiliary": False,         # recovery/tools visible without pressing space
+                                        # (no-USB route boots it from the internal disk)
         "LauncherOption": "Full",
         "PickerAttributes": 17,
         "PickerMode": "Builtin",

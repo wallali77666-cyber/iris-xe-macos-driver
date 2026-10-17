@@ -57,6 +57,26 @@ jobs:
         run: python3 tools/ixcheck/test_compare.py
       - name: All shell scripts parse
         run: |
-          for f in build/*.sh tools/efi/assemble.sh tools/ixcheck/ixcheck.sh package/*.sh; do
+          for f in build/*.sh tools/efi/assemble.sh tools/ixcheck/ixcheck.sh \
+                   tools/ixgen/fetch_i915.sh package/*.sh; do
             bash -n "$f" && echo "parsed: $f"
           done
+
+  # ixgen: fetch the pinned i915 hardware facts IXRM is built on and extract the
+  # GGTT/paging sections. The job log + the small extract artifact are the audit
+  # trail: no register value in the driver may be guessed. Nothing fetched here
+  # is committed to the tree — this runs purely in CI.
+  ixgen-linux:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch + extract pinned i915 facts (v6.12 = the capture kernel)
+        run: bash tools/ixgen/fetch_i915.sh v6.12 i915-ref
+      - name: Upload the provenance-stamped extract (small)
+        uses: actions/upload-artifact@v4
+        with:
+          name: i915-ref-extract
+          path: i915-ref/extract.txt
+          if-no-files-found: error

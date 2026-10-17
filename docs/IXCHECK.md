@@ -56,6 +56,7 @@ system partition alone until install day.
 | `*_i915_display_info.txt` | mode, crtc timings, stride, format, tiling of the lit pipe |
 | `edid_*.bin` | the exact panel EDID ixplan plans from |
 | `*_i915_edp_psr_status.txt` etc. | bonus state, ignored by the v1 comparator |
+| `*_i915_gem_objects/engine_info/guc_info.txt` | GT baseline (objects → GGTT offsets) — Phase D ground truth for IXRM, ignored by the v1 comparator |
 | `lspci-igpu.txt`, `dmesg*.txt`, `uname.txt` | machine + driver context for the report |
 | `intel_reg_dump.txt` | full MMIO dump, only if igt-gpu-tools happens to be installed |
 

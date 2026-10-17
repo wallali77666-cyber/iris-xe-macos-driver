@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# ixcheck — capture the running Linux i915 display state (ground truth) from the
-# target machine, so the macOS side (IXFB logs) and the register planner (ixplan)
-# can be validated against what the real driver actually programmed.
+# ixcheck — capture the running Linux i915 display + GT state (ground truth) from
+# the target machine, so the macOS side (IXFB logs) and the register planner
+# (ixplan) can be validated against what the real driver actually programmed.
 #
 # READ-ONLY: this script never writes to hardware, sysfs or debugfs. It only reads
 # debugfs/sysfs text and packs it into one tarball for you to copy back to Windows.
@@ -66,6 +66,20 @@ dmesg > "$WK/dmesg.txt" 2>/dev/null || true
 dmesg 2>/dev/null | grep -iE 'i915|drm' > "$WK/dmesg-i915.txt" || true
 uname -a > "$WK/uname.txt"
 cat /proc/cmdline > "$WK/kernel-cmdline.txt" 2>/dev/null || true
+
+# --- 3b. GT-side baseline (Phase D ground truth) ------------------------------
+# Ground truth for the future IXRM memory/submission work: where the driver's
+# objects sit in the GGTT (offsets/sizes), how submission was brought up.
+# Text only, head-limited; still strictly read-only.
+for d in /sys/kernel/debug/dri/[0-9]*; do
+  [ -d "$d" ] || continue
+  n="$(basename "$d")"
+  for f in i915_gem_objects i915_engine_info i915_guc_info; do
+    if [ -r "$d/$f" ]; then
+      head -n 400 "$d/$f" > "$WK/${n}_${f}.txt" 2>/dev/null || true
+    fi
+  done
+done
 
 # --- 4. optional: full register dump if igt-gpu-tools happens to be installed --
 if command -v intel_reg >/dev/null 2>&1; then

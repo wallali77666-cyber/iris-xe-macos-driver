@@ -53,7 +53,8 @@ one). B2 is hardware-validated; the on-disk EDID equals what the VBT/GOP runs.
 ## Phase C — Bring-up on the target laptop
 
 0. Get the CI-built EFI (`iris-xe-efi` artifact), put it on a USB with a macOS
-   Recovery image — full steps, sizes and BIOS table in `docs/PHASE-C-OPENCORE.md`.
+   Recovery image — or, if there is no spare stick, on the internal disk
+   (`docs/PHASE-C-OPENCORE.md`, section 2b). Full steps, sizes and BIOS table there.
 1. Boot macOS Sequoia via OpenCore on the Latitude 5420 (no iGPU driver: display comes from
    the firmware framebuffer path until IXFB claims the pipe; expect a very slow, unaccelerated desktop).
 2. Build `IXFB` Phase 1 (firmware-lit pipe takeover, like `NMIntelFB`) → internal panel shows a
@@ -63,6 +64,13 @@ one). B2 is hardware-validated; the on-disk EDID equals what the VBT/GOP runs.
 4. Phase 2 display: actually program modes (backlight dimming, DP link training for eDP).
 
 ## Phase D — Acceleration (the research mountain)
+
+**Status (2026-10-17): started — staged plan in `docs/PHASE-D-IXRM.md`.** The facts
+pipeline (`tools/ixgen/fetch_i915.sh`, CI job `ixgen-linux`) fetches and extracts the
+pinned i915 reference facts for the GT side (GGTT window, PTE encoding, flag bits) —
+the auditable "no guessed register values" trail. The GT baseline capture
+(`i915_gem_objects` / `i915_engine_info` / `i915_guc_info`) is now part of `ixcheck.sh`.
+Next code: the read-only GGTT walk in the IXRM probe (stage D1).
 
 1. Kernel driver (`IXRM`): the minimum Intel GPU services ANV needs — VRAM/GGTT management,
    ring/command submission, GuC/HuC firmware upload, power states. Scoped against what

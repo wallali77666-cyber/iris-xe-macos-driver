@@ -8,6 +8,7 @@ Quick order of operations (everything cheap comes first):
 ```
 1. download iris-xe-efi          ~4 MB   Actions -> efi -> latest run -> Artifacts
 2. put EFI/ on a FAT32 USB       secs    section 2 below (Win+R -> diskpart)
+   no USB stick?  section 2b: the internal disk does the same job
 3. when YOU say go: Recovery    ~650-700 MB  macrecovery, section 2.4 (size confirmed first)
 4. BIOS + boot + install                 sections 3-4; send back the ESP logs if off
 5. later, validation: Linux live USB -> ixcheck -> compare   (docs/IXCHECK.md)
@@ -76,6 +77,73 @@ USB:\EFI\...                              (from the CI zip)
 USB:\com.apple.recovery.boot\...          (from macrecovery)
 ```
 
+## 2b. No USB stick? Use the internal disk instead
+
+Everything the stick would carry can live on the laptop's own disk, and every
+piece of it is additive and removable:
+
+- `EFI\OC` → the **EFI system partition** (ESP) Windows already has, with a
+  dedicated *OpenCore* firmware entry (Windows Boot Manager stays untouched)
+- `com.apple.recovery.boot` → the **SHARE** FAT32 partition made for ixcheck
+  (needs ~1 GB free; only the recovery folder goes there)
+
+### 2b.1 Copy OpenCore to the ESP
+
+Get the artifact as in section 1 and unzip it somewhere convenient (Desktop is
+fine). Then, in an **Administrator** cmd window:
+
+```
+mountvol S: /S                    & rem  mounts the ESP read/write at S: (any free letter)
+xcopy /e /i "<unzipped>\EFI\OC" S:\EFI\OC
+mountvol S: /D                    & rem  unmount when done
+```
+
+Rules that keep this safe:
+
+- **only** `EFI\OC` goes to the ESP. Never touch `S:\EFI\Microsoft` (Windows)
+  or `S:\EFI\BOOT` (the fallback loader). There is no reason to copy
+  `EFI\BOOT` from the zip on this route.
+- if `S:\EFI\OC` already exists from an earlier attempt, delete it first —
+  it's ours and gets replaced wholesale every time.
+
+### 2b.2 Add the "OpenCore" firmware entry (additive, reversible)
+
+```
+bcdedit /copy {bootmgr} /d "OpenCore"
+```
+
+It prints a brand-new `{guid}`; feed that guid back:
+
+```
+bcdedit /set {guid} path \EFI\OC\OpenCore.efi
+bcdedit /enum firmware        & rem  verify: "OpenCore" -> \EFI\OC\OpenCore.efi
+```
+
+Boot it via `F12` → boot menu → **OpenCore**. (Optional:
+`bcdedit /set {fwbootmgr} displayorder {guid} /addfirst` makes it first in the
+firmware order — I'd wait with that; F12 keeps Windows in charge until macOS
+actually boots. If F12 doesn't list it yet, one clean Windows shutdown +
+power-on usually syncs the firmware variables.)
+
+Fully uninstallable any time: `bcdedit /delete {guid}` plus deleting
+`S:\EFI\OC`.
+
+### 2b.3 Recovery onto SHARE
+
+Download it exactly as in section 2 step 4 (**⬇ ~650–700 MB — only when you
+say go; nothing above has pulled a byte yet**) and copy the resulting folder
+`com.apple.recovery.boot` to the root of the SHARE partition. Explorer gives
+the partition its own drive letter; open it and drop the folder next to the
+existing `ixcheck` files. Leave the partition FAT32.
+
+### 2b.4 Boot, and where the logs land
+
+As in section 4: `F12` → OpenCore → pick **macOS Base System** (the picker
+lists it because a plain FAT32 volume carries the recovery folder — no stick
+involved). OpenCore's and the installer's logs now land on the internal ESP;
+`mountvol S: /S` again and read `S:\EFI\opencore-*.txt` and `S:\SysReport\`,
+then send those over as usual.
+
 ## 3. BIOS (Latitude 5420)
 
 | Setting | Value |
@@ -100,10 +168,10 @@ bring-up depends on the firmware leaving the panel lit when it hands off.
 
 ## 5. If something goes wrong (it will be debugged from logs)
 
-The config writes its logs to the USB ESP for you:
+The config writes its logs to the ESP it booted from (stick or internal):
 
-- `USB:\EFI\opencore-*.txt` — OpenCore's own log
-- `USB:\SysReport\` — ACPI table dump (fixes SSDT names, EC/AWAC decisions)
+- `EFI\opencore-*.txt` — OpenCore's own log
+- `SysReport\` — ACPI table dump (fixes SSDT names, EC/AWAC decisions)
 - kernel-side: boot is already `-v debug=0x100 keepsyms=1`; the `IXFB:` and `IXRM:`
   lines are the interesting ones
 
@@ -133,7 +201,8 @@ Change one thing at a time and keep the log files — that is the whole loop.
 
 ## 6. After the installer finishes
 
-1. Reboot into the installed system (same USB EFI works).
+1. Reboot into the installed system (the same EFI works — USB or the
+   section 2b internal-disk entry).
 2. That first boot is Phase C step 2: compare the `IXFB:` log lines against the
    `tools/ixplan` plan (expected for B140HAK: format 8 = XRGB8888, stride 0x78,
    HTOTAL/VTOTAL from `ixplan.py`). The log prints what the firmware left lit.
