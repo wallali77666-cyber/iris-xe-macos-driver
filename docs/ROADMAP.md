@@ -70,7 +70,10 @@ pipeline (`tools/ixgen/fetch_i915.sh`, CI job `ixgen-linux`) fetches and extract
 pinned i915 reference facts for the GT side (GGTT window, PTE encoding, flag bits) —
 the auditable "no guessed register values" trail. The GT baseline capture
 (`i915_gem_objects` / `i915_engine_info` / `i915_guc_info`) is now part of `ixcheck.sh`.
-Next code: the read-only GGTT walk in the IXRM probe (stage D1).
+**D1 code has landed**: the IXRM probe walks the GGTT read-only — BAR0 window at
++0x800000 (per the pinned `gen6_gttmmadr_size()/2` fact), 8-byte entries decoded as
+`addr | present` — and logs them for cross-check against Linux's `i915_gem_objects`
+capture. Next: first macOS boot to read those lines, then the D1 checker.
 
 1. Kernel driver (`IXRM`): the minimum Intel GPU services ANV needs — VRAM/GGTT management,
    ring/command submission, GuC/HuC firmware upload, power states. Scoped against what

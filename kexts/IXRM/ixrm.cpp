@@ -19,6 +19,8 @@
 #include <IOKit/pci/IOPCIDevice.h>
 #include <mach/kmod.h>
 
+#include "ixrm_mmio.h"
+
 #define IXRMLOG(fmt, ...) IOLog("IXRM: " fmt "\n", ##__VA_ARGS__)
 
 extern "C" kern_return_t _start(kmod_info_t *ki, void *d);
@@ -26,6 +28,58 @@ extern "C" kern_return_t _stop(kmod_info_t *ki, void *d);
 extern "C" { KMOD_EXPLICIT_DECL(com.irisxe.IXRM, "0.1", _start, _stop) }
 extern "C" kern_return_t _start(kmod_info_t *ki, void *d) { return KERN_SUCCESS; }
 extern "C" kern_return_t _stop(kmod_info_t *ki, void *d) { return KERN_SUCCESS; }
+
+// --- D1: read-only GGTT walk -------------------------------------------------
+// Facts and provenance: ixrm_mmio.h (pinned to i915 v6.12). Nothing is mapped
+// anew and nothing is written: this reads the page-table window the BAR0
+// mapping already exposes (the same view i915 reaches via
+// ioremap(BAR0_start + SZ_16M/2) on TGL). Purpose of this stage: prove on the
+// real machine that IXRM locates the exact structures Linux sees — the Linux
+// side arrives via ixcheck's GT capture (i915_gem_objects). Entries are only
+// ever read here; writing starts in D2, after this walk agrees.
+static void ixrmWalkGgtt(IOMemoryMap *bar0) {
+    const UInt64 barLen = (UInt64)bar0->getLength();
+    const UInt64 winOff = ixrm::kGttWindowOffset;
+
+    IXRMLOG("ggtt: BAR0 %llu bytes; window at +0x%llX (gen6_gttmmadr_size/2)",
+            (unsigned long long)barLen, (unsigned long long)winOff);
+    if (barLen < winOff + 2 * ixrm::kGttPageSize) {
+        IXRMLOG("ggtt: BAR0 too small for the window - skipping (fact re-check)");
+        return;
+    }
+
+    const UInt64 avail = barLen - winOff;
+    const UInt64 tableBytes = (avail < winOff) ? avail : winOff;   // <= half the BAR
+    const UInt32 entries = (UInt32)(tableBytes / ixrm::kGttEntrySize);
+
+    volatile UInt64 *ggtt =
+        (volatile UInt64 *)((const UInt8 *)bar0->getVirtualAddress() + winOff);
+    IXRMLOG("ggtt: walking %u entries (%llu bytes), read-only",
+            entries, (unsigned long long)tableBytes);
+
+    for (UInt32 i = 0; i < 16 && i < entries; i++)
+        IXRMLOG("ggtt[%u] = 0x%016llX", i, (unsigned long long)ggtt[i]);
+
+    UInt32 present = 0, shown = 0, firstPresent = 0;
+    for (UInt32 i = 0; i < entries; i++) {
+        const UInt64 e = ggtt[i];
+        if (!(e & ixrm::kGttPtePresent)) continue;
+        if (present == 0) firstPresent = i;
+        present++;
+        if (shown < 48) {
+            IXRMLOG("ggtt: pte[%u] = 0x%016llX  addr 0x%011llX",
+                    i, (unsigned long long)e,
+                    (unsigned long long)(e & ixrm::kGttPteAddrMask));
+            shown++;
+        }
+    }
+    if (present)
+        IXRMLOG("ggtt: scan done: %u entries, %u present (first at %u)",
+                entries, present, firstPresent);
+    else
+        IXRMLOG("ggtt: scan done: %u entries, ZERO present - the window fact must"
+                " be re-checked against the v6.12 extract", entries);
+}
 
 class com_irisxe_IXRM : public IOService {
     OSDeclareDefaultStructors(com_irisxe_IXRM)
@@ -74,6 +128,9 @@ bool com_irisxe_IXRM::start(IOService *provider) {
         // ixcheck trace baseline.
         volatile UInt32 *regs = (volatile UInt32 *)bar0->getVirtualAddress();
         IXRMLOG("MMIO[00000] = %08X (raw, uninterpreted)", regs ? regs[0] : 0u);
+
+        // D1: read-only GGTT walk (facts + provenance: ixrm_mmio.h).
+        ixrmWalkGgtt(bar0);
     }
 
     IXRMLOG("bring-up plan (Phase D): GGTT/PPGTT setup, GuC/HuC upload from a user-space");

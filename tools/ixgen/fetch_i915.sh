@@ -16,12 +16,17 @@
 #   anchored #define lines, so formulas AND values come out in one run.
 #
 # v3 (2026-10-17): v2 located the GGTT mapping and the entry bit values; v3
-#   prints the functions behind the remaining unknowns (gen6_gttadr_offset,
+#   printed the functions behind the remaining unknowns (gen6_gttadr_offset,
 #   gen6_gttmmadr_size, gen8_get_total_gtt_size, gen8_ggtt_pte_encode,
 #   gen8_ggtt_insert_entries, gen8_set_pte) with signature patterns (v2's
-#   ggtt_probe_common pattern first hit a comment mention), fetches the x86 PTE
+#   ggtt_probe_common pattern first hit a comment mention), fetched the x86 PTE
 #   header for the _PAGE_* bits PPAT_* is built from, and survives raw.github
 #   flaking (--retry-all-errors; i915_reg.h missed v2 for unrelated reasons).
+#
+# v4 (2026-10-17): D1 landed on the v3 facts; v4 completes the sheet for D2 —
+#   the GMCH/GGMS decode constants (real GTT table size), SZ_* via
+#   include/linux/sizes.h, and i915_direct_stolen_access() to confirm TGL takes
+#   the BAR window path (not the GSMBASE one).
 #
 # Usage:  bash tools/ixgen/fetch_i915.sh [TAG] [OUTDIR]
 #         (defaults: v6.12, i915-ref/)
@@ -53,7 +58,9 @@ drivers/gpu/drm/i915/gt/gen8_ppgtt.h
 drivers/gpu/drm/i915/gt/intel_gtt.h
 drivers/gpu/drm/i915/gt/intel_gtt.c
 drivers/gpu/drm/i915/gt/intel_ggtt_gmch.c
+drivers/gpu/drm/i915/i915_drv.h
 arch/x86/include/asm/pgtable_types.h
+include/linux/sizes.h
 "
 
 say "== ixgen: i915 hardware-facts pipeline"
@@ -151,6 +158,10 @@ fnbody_any "gen6_gttadr_offset" 40
 fnbody_any "gen6_gttmmadr_size" 40
 
 say ""
+say "--- i915_direct_stolen_access(): which phys_addr path applies on TGL"
+fnbody_any "i915_direct_stolen_access\\(struct" 30
+
+say ""
 say "--- gen8_get_total_gtt_size(): decoding SNB_GMCH_CTRL"
 fnbody_any "gen8_get_total_gtt_size" 60
 
@@ -198,7 +209,7 @@ fnbody_any "needs_wc_ggtt_mapping" 25
 say ""
 say "--- anchored #define lines: the numeric values (all fetched files)"
 if [ "${#SRC[@]}" -gt 0 ]; then
-  search 200 "^#define[[:space:]]+(GEN8_PAGE|PPAT_|GEN12_PPGTT|GEN12_GGTT|GEN8_PDE|PTE_|I915_GTT_PAGE|_PAGE_|PHYSICAL|BDSM|SNB_GMCH)" "${SRC[@]}"
+  search 200 "^#define[[:space:]]+(GEN8_PAGE|PPAT_|GEN12_PPGTT|GEN12_GGTT|GEN8_PDE|PTE_|I915_GTT_PAGE|_PAGE_|PHYSICAL|BDSM|GMCH|GGMS|SZ_|HAS_LMEM)" "${SRC[@]}"
 fi
 
 say ""

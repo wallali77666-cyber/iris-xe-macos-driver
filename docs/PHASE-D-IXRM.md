@@ -1,9 +1,10 @@
 # Phase D — IXRM: the acceleration stack, built the NullMoth way
 
 Status: **started (2026-10-17)**. Facts pipeline (`tools/ixgen`) is live in CI,
-the GT-side baseline capture is in `ixcheck.sh`, and the first IXRM code —
-the read-only GGTT walker — is the next commit. This document is the plan of
-record for everything between "display works" (Phase C) and "Metal on Iris Xe".
+the GT-side baseline capture is in `ixcheck.sh`, and the first IXRM code — the
+read-only GGTT walker (`kexts/IXRM/ixrm_mmio.h` + the `ggtt:` walk in the probe)
+— has landed. This document is the plan of record for everything between
+"display works" (Phase C) and "Metal on Iris Xe".
 
 ## The chain we are rebuilding
 
@@ -74,31 +75,42 @@ script prints the directory listing so each move is one small script edit, not
 a mystery. When a stage needs new facts (GuC interfaces for D3, etc.), the file
 list grows in the same pattern.
 
-## D1 in detail (next code)
+## D1 — the read-only GGTT walk (code landed 2026-10-17; hardware run pending)
 
-1. Read the D0 extract; write `ixrm_mmio.h` (constants + provenance comments
-   pointing at file+section of the extract).
-2. Extend the IXRM probe: after the existing read-only probe, locate the GGTT
-   window and walk the first entries; log `IXRM: ggtt[%u] = 0x%016llx`.
-3. Actually locate the boot framebuffer in the GGTT (its physical address is
-   already known to IXFB from the firmware state) and print its entries.
-4. Validation, both sides of the same machine:
-   - Linux side: the new `3b` section of `ixcheck.sh` captures
-     `i915_gem_objects` (object → GGTT offset/size) for the next live session.
-   - macOS side: the `IXRM: ggtt[...]` lines from the installed system.
-   - A small `tools/ixgen`-style checker compares them the way
-     `compare.py` does for display (PASS/DIFF per entry), once both sides
-     exist. Until then the raw values are just logged — nothing is written
-     to hardware, so nothing can be harmed by a wrong guess, and no guess is
-     made anyway.
+What the pinned extract settled (v6.12; the file:line table lives in
+`kexts/IXRM/ixrm_mmio.h`):
+
+- the GGTT page-table array sits in **BAR0 at +0x800000** on gen>=8 — i915
+  computes `phys_addr = BAR0_start + gen6_gttmmadr_size()/2`, and the code's own
+  comment says "GTTADR starts at 8MB offset";
+- entries are 8-byte `gen8_pte_t`, one per 4 KiB page, indexed by
+  `offset / I915_GTT_PAGE_SIZE`;
+- Tiger Lake's GGTT encoder is `gen8_ggtt_pte_encode` (the `gen12 < 12.70`
+  choice): `pte = addr | GEN8_PAGE_PRESENT` — no RW bit, no PAT on the GGTT;
+- the address field to decode with is `GENMASK_ULL(45, 12)`
+  (`GEN12_GGTT_PTE_ADDR_MASK`).
+
+The probe (`ixrmWalkGgtt`) walks the window read-only: first 16 entries
+verbatim, then every present entry (first 48) with its decoded address, then a
+count. Nothing is written anywhere — the walk feeds the D1 exit exam, which
+needs both sides of the same machine:
+
+- Linux side: `ixcheck.sh`'s `3b` section captures `i915_gem_objects`
+  (object → GGTT offset/size) on the next live session;
+- macOS side: the `IXRM: ggtt...` lines from the installed system;
+- then a small checker (like `compare.py`) diffs the two — that PASS/DIFF table
+  becomes the permanent regression guard for IXRM's memory code.
+
+Until the comparison runs, raw values are all the walker claims; a zero-present
+scan is treated as "the window fact must be re-checked", never as success.
 
 ## Current sprint
 
-- [x] `tools/ixgen/fetch_i915.sh` + `ixgen-linux` CI job (pinned v6.12)
+- [x] `tools/ixgen/fetch_i915.sh` + `ixgen-linux` CI job (pinned v6.12; v4 adds the GMCH/GGMS size decode for D2)
 - [x] GT baseline added to `ixcheck.sh` (`i915_gem_objects`, `i915_engine_info`, `i915_guc_info`)
-- [ ] `ixrm_mmio.h` + read-only GGTT walk in the IXRM probe — **next**
-- [ ] Linux GT capture on the laptop (optional now; needed to finish D1's exam)
-- [ ] D1 checker once both sides have data
+- [x] `ixrm_mmio.h` + read-only GGTT walk in the IXRM probe (D1 code)
+- [ ] First macOS boot → read the `IXRM: ggtt...` lines (needs the Phase C install)
+- [ ] Linux GT capture on the laptop + the D1 checker (once both sides exist)
 
 Sizes for later, so nobody is surprised (all CI-side unless noted): Mesa
 source ~1.5–2 GB in CI when D5 starts; TGL GuC/HuC blobs from linux-firmware
