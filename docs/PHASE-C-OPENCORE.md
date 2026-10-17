@@ -3,6 +3,16 @@
 Status: **the EFI is produced and validated by CI** (workflow `efi`); first hardware
 boot is the next step and is debugged from logs the machine writes to the USB stick.
 
+Quick order of operations (everything cheap comes first):
+
+```
+1. download iris-xe-efi          ~4 MB   Actions -> efi -> latest run -> Artifacts
+2. put EFI/ on a FAT32 USB       secs    section 2 below (Win+R -> diskpart)
+3. when YOU say go: Recovery    ~650-700 MB  macrecovery, section 2.4 (size confirmed first)
+4. BIOS + boot + install                 sections 3-4; send back the ESP logs if off
+5. later, validation: Linux live USB -> ixcheck -> compare   (docs/IXCHECK.md)
+```
+
 This document is the real-machine half of Phase C. Everything listed here is
 built by `.github/workflows/efi.yml` — your laptop downloads nothing until the
 step marked **⬇ big download** below.
