@@ -160,14 +160,8 @@ if [ -n "$OCV" ]; then
   rc=$?
   set -e
   cat "$DIST/ocvalidate.log"
-  if [ "$rc" -ne 0 ]; then
-    if grep -q "ERROR" "$DIST/ocvalidate.log"; then
-      die "ocvalidate reported errors (exit $rc)"
-    fi
-    log "ocvalidate exit $rc but no ERROR lines - treated as warnings"
-  else
-    log "ocvalidate: clean"
-  fi
+  [ "$rc" -eq 0 ] || die "ocvalidate flagged issues (exit $rc) - fix tools/efi/configure.py"
+  log "ocvalidate: clean"
 else
   log "ocvalidate not present in the release - plist parse check only"
 fi

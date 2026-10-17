@@ -10,7 +10,7 @@ step marked **⬇ big download** below.
 ## 1. What the CI artifact contains
 
 Artifact `iris-xe-efi` (Actions → `efi` → the run → Artifacts) =
-`iris-xe-efi.zip` — **~10–20 MB download**:
+`iris-xe-efi.zip` — **~4 MB download**:
 
 ```
 EFI/BOOT/BOOTx64.efi        OpenCore bootloader

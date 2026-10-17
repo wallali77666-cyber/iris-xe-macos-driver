@@ -15,7 +15,7 @@ The assembled EFI (OpenCore + kexts + config.plist) is produced by
 - compiles the SSDTs here with `iasl`
 - generates `config.plist` from OpenCore's own `Sample.plist`
   (`tools/efi/configure.py`) and validates it with the release's `ocvalidate`
-- packages everything as `iris-xe-efi.zip` (artifact `iris-xe-efi`, ~10 MB)
+- packages everything as `iris-xe-efi.zip` (artifact `iris-xe-efi`, ~4 MB)
 
 Real-machine instructions (USB creation on Windows, BIOS settings, first boot,
 what to send back): [`docs/PHASE-C-OPENCORE.md`](../docs/PHASE-C-OPENCORE.md).

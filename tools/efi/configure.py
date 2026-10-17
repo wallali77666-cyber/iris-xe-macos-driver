@@ -128,7 +128,8 @@ def main(argv=None) -> int:
         cfg = plistlib.load(f)
 
     oc = ver_tuple(args.oc_version)
-    add_arch = oc < (1, 0, 0)  # Kernel/Add/Arch was removed in OpenCore 1.0.0
+    # OpenCore 1.0.8 still requires Kernel/Add/Arch (validated by ocvalidate); it has
+    # been part of the schema since 0.5.x, so always including "Any" is safe.
 
     # --- ACPI ----------------------------------------------------------------
     cfg.setdefault("ACPI", {})["Add"] = [{
@@ -172,7 +173,8 @@ def main(argv=None) -> int:
     # --- Kernel --------------------------------------------------------------
     kext_add = []
     for bundle, exe, comment in KEXTS:
-        entry = {
+        kext_add.append({
+            "Arch": "Any",
             "BundlePath": bundle,
             "Comment": comment,
             "Enabled": True,
@@ -180,10 +182,7 @@ def main(argv=None) -> int:
             "MaxKernel": "",
             "MinKernel": "",
             "PlistPath": "Contents/Info.plist",
-        }
-        if add_arch:
-            entry["Arch"] = "Any"
-        kext_add.append(entry)
+        })
     cfg.setdefault("Kernel", {})["Add"] = kext_add
     CHANGES.append("Kernel/Add: %d extensions (%s)" % (len(kext_add), ", ".join(k[0] for k in KEXTS)))
 
@@ -243,7 +242,6 @@ def main(argv=None) -> int:
         set_key(cfg, ["Misc", "Debug", k], v)
 
     for k, v in {
-        "AllowNvramReset": True,
         "AllowSetDefault": True,
         "DmgLoading": "Signed",
         "ExposeSensitiveData": 6,
@@ -252,6 +250,9 @@ def main(argv=None) -> int:
         "Vault": "Optional",
     }.items():
         set_key(cfg, ["Misc", "Security", k], v)
+    # AllowNvramReset existed up to OpenCore 0.9.x; newer versions dropped the key
+    # (the ResetNvramEntry.efi driver provides the picker entry instead).
+    set_if_present(cfg, ["Misc", "Security", "AllowNvramReset"], True)
 
     tools = cfg.get("Misc", {}).get("Tools")
     if tools:
@@ -307,7 +308,8 @@ def main(argv=None) -> int:
     # --- UEFI ----------------------------------------------------------------
     if args.drivers:
         cfg.setdefault("UEFI", {})["Drivers"] = [
-            {"Comment": "", "Enabled": True, "LoadEarly": False, "Path": d}
+            {"Arguments": "", "Comment": "", "Enabled": True, "HideVerbose": False,
+             "LoadEarly": False, "Path": d}
             for d in args.drivers
         ]
         CHANGES.append("UEFI/Drivers: " + ", ".join(args.drivers))
