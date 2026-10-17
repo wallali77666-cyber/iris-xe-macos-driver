@@ -166,6 +166,49 @@ else
   log "ocvalidate not present in the release - plist parse check only"
 fi
 
+# ---- 6b. consistency: everything the config references must exist in the tree ---
+# A config entry without its file (or with a wrong executable name) is exactly the
+# class of bug that ends in a black screen on hardware day - fail the build instead.
+python3 - "$EFI/OC/config.plist" "$EFI" <<'PYEOF' || die "EFI consistency check failed"
+import os
+import plistlib
+import sys
+
+cfg = plistlib.load(open(sys.argv[1], "rb"))
+efi = sys.argv[2]
+missing = []
+
+for e in cfg.get("Kernel", {}).get("Add", []) or []:
+    if not e.get("Enabled"):
+        continue
+    bundle = os.path.join(efi, "OC", "Kexts", e.get("BundlePath", ""))
+    if not os.path.isdir(bundle):
+        missing.append("Kexts/" + str(e.get("BundlePath")))
+        continue
+    exe = e.get("ExecutablePath")
+    if exe and not os.path.isfile(os.path.join(bundle, exe)):
+        missing.append("Kexts/%s -> %s" % (e.get("BundlePath"), exe))
+
+for d in cfg.get("UEFI", {}).get("Drivers", []) or []:
+    if d.get("Enabled") and not os.path.isfile(
+            os.path.join(efi, "OC", "Drivers", d.get("Path", ""))):
+        missing.append("Drivers/" + str(d.get("Path")))
+
+for a in cfg.get("ACPI", {}).get("Add", []) or []:
+    if a.get("Enabled") and not os.path.isfile(
+            os.path.join(efi, "OC", "ACPI", a.get("Path", ""))):
+        missing.append("ACPI/" + str(a.get("Path")))
+
+for need in ("BOOT/BOOTx64.efi", "OC/OpenCore.efi"):
+    if not os.path.isfile(os.path.join(efi, need)):
+        missing.append(need)
+
+if missing:
+    print("MISSING from the EFI tree: " + ", ".join(missing))
+    sys.exit(1)
+print("consistency: every enabled kext/driver/ACPI entry exists in the tree")
+PYEOF
+
 # ---- 7. package ------------------------------------------------------------
 (cd "$DIST" && zip -qr iris-xe-efi.zip EFI VERSIONS.txt)
 log "tree:"
