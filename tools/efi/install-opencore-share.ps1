@@ -150,6 +150,6 @@ Write-Host 'BIOS (F2) check: Secure Boot = Disabled. Then reboot -> F12 -> "Open
 Write-Host 'If F12 does not list it yet: full shutdown + power-on (not a plain reboot), then F12 again.'
 Write-Host ''
 Write-Host 'UNDO (elevated, any time):'
-Write-Host ("  bcdedit /set {fwbootmgr} displayorder $guid /remove")
+Write-Host ("  bcdedit /set '{fwbootmgr}' displayorder $guid /remove")
 Write-Host ("  bcdedit /delete $guid /f")
 Write-Host ("  (files: delete {0}\EFI and {0}\com.apple.recovery.boot)" -f $Volume)
