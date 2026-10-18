@@ -1,0 +1,70 @@
+name: boot-bundle
+
+# Builds the complete EFI AND downloads + verifies the macOS Recovery from
+# Apple on the runner, then uploads ONE zip you can download from here:
+#   EFI/ + com.apple.recovery.boot/ + VERSIONS.txt + BUNDLE.txt
+# Use this to (re)stage the SHARE boot partition without hunting for the two
+# separate artifacts. Artifacts are kept 7 days by default (trigger runs the
+# Apple fetch fresh every time).
+#
+# Run it: Actions tab -> boot-bundle -> "Run workflow" (or
+#   gh workflow run boot-bundle.yml
+#  and then gh run download <run-id> -n iris-xe-boot-bundle).
+
+on:
+  workflow_dispatch:
+    inputs:
+      retention-days:
+        description: 'Artifact retention in days (1-90)'
+        default: '7'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: ACPI compiler (iasl)
+        run: |
+          command -v iasl >/dev/null 2>&1 || brew install acpica
+          iasl -v | head -n 2 || true
+      - name: Build IXFB + IXRM
+        run: sh build/build_all.sh
+      - name: Assemble EFI
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: sh tools/efi/assemble.sh
+      - name: Unpack the EFI zip into the bundle tree
+        run: |
+          unzip -oq dist/efi/iris-xe-efi.zip -d dist/bundle
+          find dist/bundle -maxdepth 2 -mindepth 1 | sort
+      - name: Download + verify macOS Recovery (from Apple, ~884 MB)
+        run: sh tools/efi/recovery.sh
+      - name: Summarize + zip the bundle
+        run: |
+          COMMIT=$(git rev-parse --short HEAD)
+          {
+            echo "# iris-xe-boot-bundle"
+            echo "# commit: $COMMIT  ($(date -u '+%Y-%m-%d %H:%M UTC'))"
+            echo "# board-id/MLB: Mac-27AD2F918AE68F61 / 00000000000000000 (docs/PHASE-C-OPENCORE.md sec 2.4)"
+            cat dist/bundle/com.apple.recovery.boot/RECOVERY-INFO.txt
+            echo
+            cat dist/bundle/VERSIONS.txt
+          } > dist/bundle/BUNDLE.txt
+          cat dist/bundle/BUNDLE.txt
+          (cd dist/bundle && zip -qr ../iris-xe-boot-bundle.zip \
+            BUNDLE.txt VERSIONS.txt EFI com.apple.recovery.boot)
+          ls -lh dist/
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: iris-xe-boot-bundle
+          path: dist/iris-xe-boot-bundle.zip
+          retention-days: ${{ inputs.retention-days || '7' }}
+          if-no-files-found: error

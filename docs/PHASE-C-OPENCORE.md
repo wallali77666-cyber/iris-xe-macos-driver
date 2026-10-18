@@ -38,6 +38,27 @@ VERSIONS.txt                exact versions of every component in this build
 `IXFB` being injected here matters: it claims the panel **during the installer**, so
 the macOS UI has a display even though no Apple driver supports Tiger Lake.
 
+## 1b. One-file bundle: EFI + Recovery together
+
+Actions → **boot-bundle** → *Run workflow* (or `gh workflow run boot-bundle.yml`),
+then download the artifact `iris-xe-boot-bundle` (**~884 MB** — the Recovery is
+the bulk) from the finished run. Contents:
+
+```
+EFI/                          same tree as section 1, rebuilt fresh
+VERSIONS.txt                  versions of every EFI component
+com.apple.recovery.boot/      BaseSystem.dmg + BaseSystem.chunklist +
+                              RECOVERY-INFO.txt (product id + verified size)
+BUNDLE.txt                    commit, date, board-id, integrity receipt
+```
+
+The bundle rebuilds and re-fetches the Recovery from Apple **on the runner**
+each time it runs (every chunk SHA-256-verified against Apple's signed
+chunklist before packaging), and is kept 7 days by default. It is the
+self-contained staging set for the SHARE boot partition
+(`tools\efi\install-opencore-share.cmd` expects this layout staged as described
+in section 2b).
+
 ## 2. Make the USB (Windows)
 
 1. USB stick, 8 GB or more. It will be wiped.

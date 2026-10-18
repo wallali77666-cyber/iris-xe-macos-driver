@@ -2,3 +2,4 @@ reports/
 __pycache__/
 *.pyc
 i915-ref/
+dist/
